@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<title>WebAssembly i64 e BigInt: fonte de regressão</title>
+<h1>Ponte i64 e BigInt sem estado persistente</h1>
+<p>Fixture-fonte não executada. Esperado: bigint:9007199254740993:-1:TypeError.</p>
+<p id="result">não executado</p>
+<script>
+const bytes = new Uint8Array([0,97,115,109,1,0,0,0,1,6,1,96,1,126,1,126,3,2,1,0,7,6,1,2,105,100,0,0,10,6,1,4,0,32,0,11]);
+const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes));
+const exact = instance.exports.id(9007199254740993n);
+let rejected = '';
+try { instance.exports.id(42); }
+catch (error) { rejected = error.name; }
+document.getElementById('result').textContent = typeof exact + ':' + exact + ':' + instance.exports.id(18446744073709551615n) + ':' + rejected;
+</script>
+</html>

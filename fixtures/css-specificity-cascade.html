@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Noir: expectativas de especificidade CSS</title>
+<style>
+body { font-family: sans-serif; background: #ffffff; color: #111111; }
+p { padding: 8px; }
+/* Verde é expectativa, não evidência de execução. Regras de erro aparecem
+   depois quando é necessário distinguir prioridade de ordem de origem. */
+#id-wins { background-color: #008000; }
+.c.c.c.c.c.c.c.c.c.c.c { background-color: #b00020; }
+.type-wins { background-color: #008000; }
+div div div div div div div div div div div p { background-color: #b00020; }
+.repeat.repeat { background-color: #008000; }
+.repeat { background-color: #b00020; }
+#repeat-id#repeat-id { background-color: #008000; }
+#repeat-id { background-color: #b00020; }
+#only-b { background-color: #008000; }
+#missing-a#only-b { background-color: #b00020; }
+:is(#unmatched-is, .is-target) { background-color: #008000; }
+.is-target.is-target { background-color: #b00020; }
+.not-target:not(#absent-not, .absent-not) { background-color: #008000; }
+.not-target.not-target.not-target { background-color: #b00020; }
+.where-target { background-color: #008000; }
+:where(#where-target) { background-color: #b00020; }
+#inline-normal#inline-normal#inline-normal#inline-normal#inline-normal#inline-normal#inline-normal#inline-normal#inline-normal#inline-normal#inline-normal { background-color: #b00020; }
+.important-sheet { background-color: #008000 !important; }
+#inline-important#inline-important { background-color: #b00020 !important; }
+.tie { background-color: #b00020; }
+.tie { background-color: #008000; }
+</style>
+</head>
+<body>
+<h1>Item 6: especificidade e cascata</h1>
+<p>Fixture-fonte não executada. Cada caso abaixo deve ter fundo verde; vermelho indica divergência da expectativa. Não comprova conformidade geral. Sem scripts ou recursos externos.</p>
+<p id="id-wins" class="c">1. ID (1,0,0) deve vencer onze ocorrências de classe (0,11,0).</p>
+<div><div><div><div><div><div><div><div><div><div><div>
+<p class="type-wins">2. Classe (0,1,0) deve vencer onze divs e um p (0,0,12).</p>
+</div></div></div></div></div></div></div></div></div></div></div>
+<p class="repeat">3. Duas ocorrências da mesma classe devem vencer uma, mesmo vindo antes.</p>
+<p id="repeat-id">4. Duas ocorrências do mesmo ID devem corresponder e vencer uma.</p>
+<p id="only-b">5. #missing-a#only-b não deve corresponder somente a id=only-b.</p>
+<p class="is-target">6. :is usa a maior tupla da lista, incluindo o ID não correspondente.</p>
+<p class="not-target">7. :not usa a maior tupla da lista; nenhum argumento corresponde aqui.</p>
+<p id="where-target" class="where-target">8. :where tem especificidade zero, mesmo contendo ID.</p>
+<p id="inline-normal" style="background-color: #008000">9. Inline normal deve vencer onze IDs repetidos em regra normal.</p>
+<p class="important-sheet" style="background-color: #b00020">10. Folha !important deve vencer inline normal.</p>
+<p id="inline-important" style="background-color: #008000 !important">11. Inline !important deve vencer folha !important.</p>
+<p class="tie">12. A última declaração deve vencer no empate de importância e especificidade.</p>
+</body>
+</html>

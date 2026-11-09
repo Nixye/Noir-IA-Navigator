@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Noir: atribuições resumíveis</title></head>
+<body>
+<h1>Atribuições resumíveis: fixture não executada</h1>
+<p>Expectativas para inspeção manual posterior, não resultados observados.</p>
+<p id="assignment">Esperado: destino true / simples true / ordem KCGRVS / composta true</p>
+<p id="generator">Esperado: base,chave / postfix true / prefix true</p>
+<p id="keys">Esperado: Symbol true / nullish true</p>
+<p id="error">Nenhuma falha reportada até agora.</p>
+<script>
+function report(error) {
+    document.getElementById('error').textContent = 'Falha: ' + String(error);
+}
+async function run() {
+    const first = { x: 1 };
+    const other = { x: 100 };
+    let selected = first;
+    async function rhs() { selected = other; return 9; }
+    (await Promise.resolve(selected))[await Promise.resolve('x')] = await rhs();
+
+    let gets = 0;
+    let written = 0;
+    const simple = {};
+    Object.defineProperty(simple, 'x', {
+        get: function() { gets++; return 1; },
+        set: function(value) { written = value; }
+    });
+    (await Promise.resolve(simple))[await Promise.resolve('x')] = await Promise.resolve(4);
+
+    let log = '';
+    let total = 0;
+    const old = {};
+    old[Symbol.toPrimitive] = function() { log += 'V'; return 3; };
+    const compound = {};
+    Object.defineProperty(compound, 'x', {
+        get: function() { log += 'G'; return old; },
+        set: function(value) { log += 'S'; total = value; }
+    });
+    const key = {};
+    key[Symbol.toPrimitive] = function() { log += 'C'; return 'x'; };
+    function property() { log += 'K'; return key; }
+    function right() { log += 'R'; return 2; }
+    (await Promise.resolve(compound))[await Promise.resolve(property())] += await Promise.resolve(right());
+    document.getElementById('assignment').textContent =
+        'destino ' + (first.x === 9 && other.x === 100) +
+        ' / simples ' + (gets === 0 && written === 4) +
+        ' / ordem ' + log + ' / composta ' + (total === 5);
+
+    const symbol = Symbol('slot');
+    const symbolic = {};
+    (await Promise.resolve(symbolic))[await Promise.resolve(symbol)] = 6;
+    let evaluated = 0;
+    let converted = 0;
+    let rhsCalls = 0;
+    const nullKey = {};
+    nullKey[Symbol.toPrimitive] = function() { converted++; return 'x'; };
+    function nullProperty() { evaluated++; return nullKey; }
+    function nullRight() { rhsCalls++; return 7; }
+    let nullType = false;
+    try {
+        (await Promise.resolve(null))[await Promise.resolve(nullProperty())] = await Promise.resolve(nullRight());
+    } catch (error) { nullType = error.name === 'TypeError'; }
+    document.getElementById('keys').textContent =
+        'Symbol ' + (symbolic[symbol] === 6) +
+        ' / nullish ' + (nullType && evaluated === 1 && converted === 0 && rhsCalls === 0);
+}
+function* post() { return (yield 'base')[yield 'chave']++; }
+function* pre() { return --(yield 'base')[yield 'chave']; }
+try {
+    let conversions = 0;
+    const value = {};
+    value[Symbol.toPrimitive] = function() { conversions++; return 7; };
+    const obj = { x: value };
+    const it = post();
+    const a = it.next();
+    const b = it.next(obj);
+    const c = it.next('x');
+    const big = { x: 4n };
+    const before = pre();
+    before.next();
+    before.next(big);
+    const d = before.next('x');
+    document.getElementById('generator').textContent =
+        a.value + ',' + b.value + ' / postfix ' +
+        (c.done && c.value === 7 && obj.x === 8 && conversions === 1) +
+        ' / prefix ' + (d.done && d.value === 3n && big.x === 3n);
+} catch (error) { report(error); }
+run().then(function() {}, report);
+</script>
+</body>
+</html>

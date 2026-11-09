@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Noir: texto e whitespace, item 8</title>
+<style>
+body { margin: 0; padding: 20px; font-size: 16px; line-height: 24px; color: #18202a; background: #ffffff; }
+h1 { font-size: 24px; } h2 { font-size: 20px; }
+.sample { width: 220px; margin: 8px 0; padding: 8px; border: 1px solid #607080; background: #edf2f7; }
+.normal { white-space: normal; } .nowrap { white-space: nowrap; }
+.preline { white-space: pre-line; } .prewrap { white-space: pre-wrap; } .pre { white-space: pre; }
+.intrinsic { display: inline-block; margin: 8px; padding: 4px; border: 1px solid #607080; }
+a { color: #204cc0; }
+</style></head><body>
+<h1>Item 8: texto e whitespace</h1>
+<p>Fixture-fonte não executada. Expectativas de contrato, não resultados observados. Sem scripts ou recursos externos.</p>
+<h2>Mesma entrada em cinco modos</h2>
+<p>Normal/nowrap colapsam espaços, tab e quebra. Pre-line conserva quebras, mas colapsa espaços/tabs. Pre/pre-wrap preservam espaços no subconjunto. Tab stops completos não são prometidos.</p>
+<p>normal</p><div class="sample normal">  Alfa   beta&#9;gama&#10;  delta   epsilon zeta eta teta  </div>
+<p>nowrap</p><div class="sample nowrap">  Alfa   beta&#9;gama&#10;  delta   epsilon zeta eta teta  </div>
+<p>preline</p><div class="sample preline">  Alfa   beta&#9;gama&#10;  delta   epsilon zeta eta teta  </div>
+<p>prewrap</p><div class="sample prewrap">  Alfa   beta&#9;gama&#10;  delta   epsilon zeta eta teta  </div>
+<p>pre</p><div class="sample pre">  Alfa   beta&#9;gama&#10;  delta   epsilon zeta eta teta  </div>
+<p>pre de agente de usuário: sem declaração white-space do autor, deve conservar espaços e não fazer wrap.</p>
+<pre class="sample">Alfa    beta gama delta epsilon zeta eta teta</pre>
+<p>Tab e form feed preservados: cada um equivale a um espaço no subconjunto, sem tab stops completos.</p>
+<div class="sample pre">A&#9;B&#12;C</div>
+<h2>Espaço pendente entre nós e links</h2>
+<p>Esperado: um separador entre palavras; espaços descartados nas bordas não criam itens ou áreas de link.</p>
+<div class="sample normal"><a href="#fim">   </a><span>Alfa </span><a href="#fim">  beta  </a><span> gama</span><a href="#fim">   </a></div>
+<div class="sample preline"><span>Alfa </span><a href="#fim"> &#10; </a><span> beta</span></div>
+<h2>Normalização CRLF/CR/LF</h2>
+<p>Esperado: quatro linhas A/B/C/D em pre-line; normal colapsa as quebras em separadores. CRLF só é unificado dentro do mesmo nó; CR ao fim de um nó e LF no próximo produzem duas quebras preservadas.</p>
+<div class="sample preline">A&#13;&#10;B&#13;C&#10;D</div>
+<div class="sample normal">A&#13;&#10;B&#13;C&#10;D</div>
+<h2>Linhas vazias e quebra final</h2>
+<p>Esperado nos três modos: linha A, linha vazia, linha B; quebra final não acrescenta uma quarta linha vazia.</p>
+<div class="sample preline">A&#10;&#10;B&#10;</div>
+<div class="sample prewrap">A&#10;&#10;B&#10;</div>
+<div class="sample pre">A&#10;&#10;B&#10;</div>
+<h2>Espaços Unicode</h2>
+<p>U+00A0/U+202F/U+2003 permanecem como conteúdo. Sem promessa de glifos, fallback ou quebra Unicode completa.</p>
+<div class="sample normal">A&#160;&#160;B | C&#8239;&#8239;D | E&#8195;&#8195;F</div>
+<div class="sample preline">A&#160;&#160;B | C&#8239;&#8239;D | E&#8195;&#8195;F</div>
+<h2>Largura preferida por nó</h2>
+<p>Esperado: texto colapsado e forma normalizada têm larguras equivalentes por nó. Com quebras, considera-se a maior linha. Agregação de irmãos continua aproximada.</p>
+<div><span class="intrinsic normal">Alfa    beta</span><span class="intrinsic normal">Alfa beta</span></div>
+<div><span class="intrinsic preline">Alfa beta&#10;X</span><span class="intrinsic preline">Alfa beta</span></div>
+<p id="fim">Destino local. Revisão textual final do item 8 concluída sem bloqueadores/check estático aprovado. Sem validação visual/funcional.</p>
+</body></html>

@@ -1,0 +1,21 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Medidas do layout Noir 0.9</title>
+<style>body { margin: 24px; font: 16px sans-serif; background: #17202a; color: #e1e7ec; }
+#card { width: 200px; height: 40px; padding: 12px; border: 2px solid #bce385; }
+.row { display: flex; gap: 12px; width: 480px; }.row div { background: #34465b; padding: 8px; }
+</style></head><body><h1>Medidas das caixas do motor</h1>
+<p>Fixture manual; sem resultado de execução. O cartão começa com clientWidth 224 e clientHeight 64 no modelo content-box deste motor.</p>
+<div id="card">Caixa mensurável</div><p id="out">Aguardando script.</p>
+<button type="button" id="resize">Alterar largura e medir novamente</button>
+<div class="row"><div id="short">Curto</div><div>Conteúdo maior<br>e uma segunda linha</div></div>
+<p id="flexout"></p><p id="view"></p>
+<script>
+const card = document.getElementById('card');
+function report() {
+  document.getElementById('out').textContent = 'clientWidth=' + card.clientWidth + ', clientHeight=' + card.clientHeight + ', clientLeft=' + card.clientLeft + ', clientTop=' + card.clientTop;
+}
+report();
+document.getElementById('resize').addEventListener('click', function () { card.style.width = '260px'; report(); });
+const detached = document.createElement('div');
+document.getElementById('flexout').textContent = 'Altura do item flex: ' + document.getElementById('short').clientHeight + '; largura do nó destacado: ' + detached.clientWidth;
+document.getElementById('view').textContent = 'Viewport: ' + window.innerWidth + ' × ' + innerHeight + '; raiz: ' + document.documentElement.clientWidth;
+</script></body></html>

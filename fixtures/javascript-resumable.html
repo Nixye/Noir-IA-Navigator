@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Noir: BigInt e funções resumíveis</title></head>
+<body><h1>BigInt, async e generators: fixture não executada</h1>
+<p id="integer">Aguardando BigInt.</p><p id="async">Aguardando async.</p><p id="generator">Aguardando generator.</p><p id="iteration">Aguardando iteração resumível.</p><p id="expression">Aguardando expressão resumível.</p>
+<script>
+const integer = (9007199254740993n * 3n - 1n) / 2n;
+document.getElementById('integer').textContent = 'BigInt exato: ' + integer.toString();
+var order = '';
+async function update() {
+    order += 'início ';
+    const value = await Promise.resolve('retomado');
+    order += value;
+    document.getElementById('async').textContent = order;
+    return value;
+}
+update();
+order += 'síncrono ';
+function* sequence() {
+    const received = yield 'primeiro';
+    yield received;
+    yield* ['delegado um', 'delegado dois'];
+    return 'fim';
+}
+const iterator = sequence();
+const first = iterator.next();
+const second = iterator.next('enviado');
+const last = iterator.next();
+const delegated = iterator.next();
+const completed = iterator.next();
+document.getElementById('generator').textContent = first.value + ', ' + second.value + ', ' + last.value + ', ' + delegated.value + ', ' + completed.value + ', done=' + completed.done;
+async function iterate() {
+    let text = '';
+    for (const value of [1, 2, 3]) {
+        text += await Promise.resolve(value);
+    }
+    document.getElementById('iteration').textContent = 'For-of resumido: ' + text;
+}
+iterate();
+async function expression() {
+    const sum = (await Promise.resolve(3)) + (await Promise.resolve(4));
+    const chosen = sum === 7 ? await Promise.resolve('sete') : await Promise.resolve('outro');
+    const negative = -(await Promise.resolve(2));
+    let nested = 0;
+    nested += await (1 + (await Promise.resolve(2)));
+    const maximum = Math.max(await Promise.resolve(5), await Promise.resolve(9));
+    document.getElementById('expression').textContent = chosen + ', negativo=' + negative + ', aninhado=' + nested + ', chamada=' + maximum;
+}
+expression();
+</script></body></html>

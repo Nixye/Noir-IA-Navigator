@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Compatibilidade própria — Noir 0.6</title>
+<style>
+body { margin: 32px; background: #f4f6f2; color: #182322; font: 16px/1.5 sans-serif; }
+section { max-width: 760px; padding: 24px; background: white; }
+h1 { font-size: 28px; }
+.passed { color: #176238; }
+.marker + p { background: #d9edcc; padding: 12px; }
+.marker ~ p[data-result="PASS" i] { color: #176238; }
+[data-token="a+b~c]d" s] { font-weight: bold; }
+</style>
+</head>
+<body>
+<section class="panel" id="panel">
+<h1>Compatibilidade do motor próprio</h1>
+<div class="marker">Seletores de irmãos, atributos e execução JavaScript:</div>
+<p id="result" data-result="pass" data-token="a+b~c]d">Aguardando execução.</p>
+<p id="dom">Aguardando consultas DOM.</p>
+</section>
+<script>
+function Record(){ this.ready=true; }
+const item=new Record();
+const options={alpha:1,beta:2,removed:3};
+delete options.removed;
+let total=0;
+for(const key in options){total+=options[key];}
+const values=[1,2,3];
+delete values[1];
+const ok=('ready' in item) && item instanceof Record && values instanceof Array && !('removed' in options) && !(1 in values) && total===3;
+const result=document.getElementById('result');
+result.textContent=ok?'JS ok: in, instanceof, delete, for-in e lacunas de arrays.':'Falha na verificação JavaScript.';
+result.className=ok?'passed':'';
+const domOk=result.nodeType===1 && result.ownerDocument===document && result.parentElement.id==='panel' && result.matches('#result') && result.closest('.panel').contains(result) && result.hasAttribute('data-result') && document.compatMode==='CSS1Compat' && document.prerendering===false;
+document.getElementById('dom').textContent=domOk?'DOM ok: metadados, atributos e consultas de elementos.':'Falha na verificação DOM.';
+</script>
+</body>
+</html>

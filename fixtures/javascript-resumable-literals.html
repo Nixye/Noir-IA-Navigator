@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Noir: literais resumíveis</title></head>
+<body>
+<h1>Literais resumíveis: fixture não executada</h1>
+<p>Expectativas para inspeção manual posterior, não resultados observados.</p>
+<p id="array">Esperado: array true</p>
+<p id="template">Esperado: xA2z / astringb</p>
+<p id="generator">Esperado: 1:false / 2:false / 10,20:true</p>
+<p id="coercion">Esperado: Symbol true / UTF16 true</p>
+<p id="error">Nenhuma falha reportada até agora.</p>
+<script>
+function report(error) {
+    document.getElementById('error').textContent = 'Falha: ' + String(error);
+}
+async function arrays() {
+    const a = [, await Promise.resolve(1), ...await Promise.resolve([, 2])];
+    const ok = a.length === 4 && !(0 in a) && a[1] === 1 && (2 in a) && a[2] === undefined && a[3] === 2;
+    document.getElementById('array').textContent = 'array ' + ok;
+}
+async function templates() {
+    let log = '';
+    const a = {};
+    a[Symbol.toPrimitive] = function(hint) { log += 'a' + hint; return 'A'; };
+    function second() { log += 'b'; return 2n; }
+    const text = `x${await Promise.resolve(a)}${second()}z`;
+    document.getElementById('template').textContent = text + ' / ' + log;
+}
+function* sequence() { return [yield 1, yield 2]; }
+try {
+    const it = sequence();
+    const a = it.next();
+    const b = it.next(10);
+    const c = it.next(20);
+    document.getElementById('generator').textContent = a.value + ':' + a.done + ' / ' + b.value + ':' + b.done + ' / ' + c.value.join(',') + ':' + c.done;
+    let caught = false;
+    let later = 0;
+    try { `${Symbol('x')}${later++}`; } catch (error) { caught = error.name === 'TypeError'; }
+    const symbol = caught && later === 0 && String(Symbol('x')) === 'Symbol(x)';
+    const lone = String.fromCharCode(55296);
+    const text = `a${lone}b`;
+    const utf16 = text.length === 3 && text.charCodeAt(1) === 55296;
+    document.getElementById('coercion').textContent = 'Symbol ' + symbol + ' / UTF16 ' + utf16;
+} catch (error) { report(error); }
+arrays().then(function() {}, report);
+templates().then(function() {}, report);
+</script>
+</body>
+</html>

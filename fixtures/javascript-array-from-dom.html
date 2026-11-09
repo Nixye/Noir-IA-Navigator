@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Array.from e NodeList real</title></head>
+<body>
+<h1>Array.from: fonte para avaliação posterior</h1>
+<p>Esta fixture não foi executada nesta entrega. Resultado esperado: true:item0:A:Alpha|item1:B:Beta.</p>
+<button data-code="A">Alpha</button>
+<button data-code="B">Beta</button>
+<p id="result">Ainda não executado.</p>
+<script>
+const nodes = document.querySelectorAll('button');
+const values = Array.from(nodes, function(node, index) {
+    return this.prefix + index + ':' + node.getAttribute('data-code') + ':' + node.textContent;
+}, {prefix:'item'});
+document.getElementById('result').textContent = Array.isArray(values) + ':' + values.join('|');
+</script>
+</body>
+</html>

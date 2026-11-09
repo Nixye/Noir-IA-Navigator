@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Recursos do motor · Noir</title>
+  <style>
+    body { margin: 0; padding: 40px; background: #f5f1e9; color: #272c35; font-size: 17px; line-height: 1.5; }
+    main { max-width: 850px; }
+    h1 { font-size: 38px; color: #18202d; margin-bottom: 12px; }
+    h2 { font-size: 24px; color: #384f62; margin-bottom: 12px; }
+    p { margin-bottom: 18px; }
+    .label { color: #876648; font-size: 13px; }
+    .panel { background: #e8dfd1; padding: 24px; margin-bottom: 20px; }
+    .nested { background: #d8e2e5; padding: 18px; margin: 12px; }
+    .hidden { display: none; }
+    .accent { color: #9b482f; }
+    a { color: #285a76; }
+    img { width: 320px; height: 96px; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="label">NOIR / DOCUMENTO DE REFERÊNCIA</p>
+    <h1>Pequenas peças. Uma base sólida.</h1>
+    <p>Esta página usa somente os recursos do subconjunto inicial do motor. Ela também serve como documento de referência para inspeção manual.</p>
+    <section class="panel">
+      <h2>Texto e Unicode</h2>
+      <p>Acentos preservados: ação, navegação, café, São Paulo. Entidades decodificadas: &amp; &lt; &gt; &quot; &#169;.</p>
+      <p>Um trecho <strong>em destaque</strong>, uma palavra <span class="accent">colorida</span> e uma frase longa para observar a quebra de linha ao redimensionar a janela.</p>
+    </section>
+    <section class="panel">
+      <h2>Caixas e herança</h2>
+      <p>Esta região combina espaçamento interno, margens, cor de fundo e estilos herdados.</p>
+      <div class="nested"><p>Uma caixa dentro de outra caixa mantém sua própria área de conteúdo.</p></div>
+      <p class="hidden">ERRO: um elemento com display none não deve aparecer.</p>
+    </section>
+    <section class="panel">
+      <h2>Imagens locais</h2>
+      <p>Ao abrir o arquivo fixtures/specimen.html pelo caminho local, a imagem abaixo é carregada pelo broker a partir da mesma pasta.</p>
+      <img src="palette.png" alt="Paleta de cores do Noir">
+    </section>
+    <p><a href="noir:welcome">Voltar ao início</a></p>
+    <p class="label">Sem scripts, recursos remotos ou conteúdo incorporado de terceiros.</p>
+  </main>
+</body>
+</html>

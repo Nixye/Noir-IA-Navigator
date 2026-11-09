@@ -1,0 +1,15 @@
+[package]
+name = "web-renderer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[dependencies]
+browser-ipc.workspace = true
+web-dom.workspace = true
+web-html.workspace = true
+web-css.workspace = true
+web-layout.workspace = true
+web-bindings = { path = "../web-bindings" }
+web-javascript = { path = "../web-javascript" }
+[lints]
+workspace = true

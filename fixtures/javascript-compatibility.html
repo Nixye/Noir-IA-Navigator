@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-BR"><meta charset="utf-8"><title>Compatibilidade JavaScript — Noir</title>
+<style>body{font-family:sans-serif;max-width:850px;margin:40px auto;padding:24px;background:#f5f6fa;color:#202030}p{padding:14px;background:#fff}h1{font-size:28px}</style>
+<h1>Construtores, controle de fluxo e exceções</h1>
+<p id="result">Preparando…</p>
+<select id="choice"><option disabled>Indisponível</option><option value="a">Primeira</option><optgroup label="Grupo"><option value="b">Segunda</option></optgroup></select><p id="select-result">Valor do select ainda não lido.</p><p id="first">Primeiro timer ainda não executado.</p><p id="second">Segundo timer ainda não executado.</p>
+<p>Resultado esperado: valor lançado preservado, finally, protótipo, call/apply, switch e laços. Após 100 ms os dois timers devem alterar seus textos, mesmo quando o primeiro lança uma exceção depois de alterar o DOM.</p>
+<script>
+function Counter(value){this.value=value;}
+Counter.prototype.next=function(){return ++this.value;};
+const counter=new Counter(4);
+const rows=[];
+try{throw {message:'objeto lançado preservado'};}catch(error){rows.push(error.message);}finally{rows.push('finally');}
+rows.push('protótipo='+counter.next());
+rows.push('apply='+function(a,b){return this.value+a+b;}.apply(counter,[2,3]));
+rows.push('call='+function(a){return this.value+a;}.call(counter,7));
+let n=0;do{n++;}while(n<2);
+outer:for(let i=0;i<4;i++){switch(i){case 0:continue outer;case 1:n+=10;break;case 2:break outer;default:n+=100;}}
+rows.push('laços='+n);
+rows.push('vírgula='+(n=3,n+2));
+const child=Object.create({greeting:'herdado'});rows.push(child.greeting);
+try{throw new TypeError('erro próprio');}catch(error){rows.push(error.name+': '+error.message);}
+const factorial=function fact(n){return n<2?1:n*fact(n-1);};rows.push('nomeada='+factorial(4));
+const getter=document.getElementById;
+const choice=getter.call(document,'choice');
+choice.value='b';
+getter.apply(document,['select-result']).textContent='Selecionado por script: '+choice.value;
+choice.onchange=function(){getter.call(document,'select-result').textContent='Selecionado pela interface: '+choice.value;};
+try{(0,getter)('choice');}catch(error){rows.push('receptor inválido recusado');}
+document.getElementById('result').textContent=rows.join(' | ');
+setTimeout(function(){document.getElementById('first').textContent='Alteração anterior à exceção foi mantida.';throw 'erro ordinário intencional';},100);
+setTimeout(function(){document.getElementById('second').textContent='Outro timer do lote também executou.';},100);
+</script></html>

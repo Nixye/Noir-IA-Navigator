@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>JSON de dados — Noir</title>
+<style>body{max-width:760px;margin:40px auto;padding:20px;color:#182322;background:#f0f4f1;line-height:1.5}h1{font-size:28px}textarea{display:block;width:600px;height:120px;padding:10px;margin:12px 0}button{padding:9px 18px}pre{background:#dfe9e0;padding:20px}</style>
+</head><body><h1>Leitura de configuração JSON</h1>
+<p>O parser interpreta somente dados. Texto inválido produz um erro capturável e nunca é executado como programa.</p>
+<textarea id="config">{"workspace":"Pessoal","tabs":["Google","Wikipedia"],"enabled":true}</textarea>
+<button id="parse" type="button">Ler configuração</button>
+<pre id="result">Aguardando a leitura.</pre>
+<script>
+function parseConfig(){
+ try{
+  const config=JSON.parse(document.getElementById('config').value);
+  document.getElementById('result').textContent='Espaço: '+config.workspace+' | Abas: '+config.tabs.join(', ')+' | Ativo: '+config.enabled;
+ }catch(error){document.getElementById('result').textContent=error.name+': '+error.message;}
+}
+document.getElementById('parse').addEventListener('click',parseConfig);parseConfig();
+</script></body></html>

@@ -1,0 +1,16 @@
+[package]
+name = "web-bindings"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+browser-ipc.workspace = true
+web-dom.workspace = true
+web-css.workspace = true
+web-html.workspace = true
+url.workspace = true
+web-javascript = { path = "../web-javascript" }
+
+[lints]
+workspace = true

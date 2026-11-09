@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Recortes e seletores CSS — Noir 0.8</title>
+<style>
+body { font: 16px sans-serif; margin: 28px; color: #e4e7ec; background: #171b23; }
+h1 { font-size: 26px; }
+.card { margin: 18px 0; padding: 14px; border: 2px solid #64748b; width: 340px; }
+.clip { overflow: hidden; height: 84px; }
+.nested { overflow: clip; height: 34px; width: 180px; background: #283b4b; }
+.wide { width: 600px; background: #354d31; padding: 8px; }
+.mode\:active { color: #c3ec92; }
+#\31 panel { border-color: #c3ec92; }
+.name\+suffix { background: #33445c; }
+.comma\,name { color: #9ad8ff; }
+.\65 scaped { font-weight: bold; }
+</style></head><body>
+<h1>Recortes retangulares e nomes CSS escapados</h1>
+<p>Fixture manual. Não constitui resultado de teste.</p>
+<p class="mode:active escaped">Este texto deve ser verde e em negrito.</p>
+<p class="comma,name">A vírgula escapada faz parte do nome da classe.</p>
+<div class="card clip" id="1panel"><div class="wide">Conteúdo largo deve ser recortado pela borda interna.</div>
+<div class="nested"><a href="https://www.google.com.br/">Link dentro de recorte aninhado, com texto adicional</a><p>Conteúdo excedente interno</p></div>
+<a href="https://www.youtube.com/">Link excedente não deve oferecer clique fora do recorte.</a></div>
+<div class="card name+suffix">A classe com + escapado deve receber fundo azulado.</div>
+<div class="card clip"><input value="Controle limitado ao recorte" style="width:550px"><p>Texto excedente</p></div>
+</body></html>

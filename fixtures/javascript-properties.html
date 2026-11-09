@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Propriedades e iteração — Noir</title>
+<style>body{max-width:800px;margin:32px auto;padding:24px;font:16px/1.5 sans-serif;background:#f2f5ef;color:#1a2420}h1{font-size:28px}pre{padding:20px;background:#e1ead8}button{padding:8px 16px}</style></head><body>
+<h1>Herança, propriedades e iteração</h1>
+<p>O motor calcula os resultados abaixo usando propriedades e laços reais.</p>
+<pre id="result">Aguardando execução.</pre>
+<button id="again" type="button">Executar novamente</button>
+<script>
+function inspect(){
+ function Workspace(name){this.name=name;}
+ Workspace.prototype.shared=undefined;
+ const work=new Workspace('Pessoal');
+ work.temporary=true;
+ const removed=delete work.temporary;
+ let names=[];
+ for(const key in work){names.push(key);}
+ const tabs=['Google','Wikipedia','GitHub'];
+ delete tabs[1];
+ let observed=[];
+ tabs.forEach((name,index)=>{observed.push(index+': '+name);});
+ const result='Instância própria: '+(work instanceof Workspace)+'\nPropriedade herdada undefined: '+('shared' in work)+'\nRemoção: '+(removed&&!('temporary' in work))+'\nNomes: '+names.join(', ')+'\nArray nativo: '+(tabs instanceof Array)+'\nHole no índice 1: '+(!(1 in tabs))+'\nIteração: '+observed.join(' | ');
+ document.getElementById('result').textContent=result;
+}
+document.getElementById('again').addEventListener('click',inspect);inspect();
+</script></body></html>

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Metadados do documento</title>
+  <style>
+    body { font-family: sans-serif; padding: 24px; color: #dce8ed; background: #111a21; }
+    h1 { font-size: 24px; }
+    p { margin: 12px 0; }
+    button { padding: 10px 18px; color: #111a21; background: #89e0cb; }
+  </style>
+</head>
+<body>
+  <h1>Navigator e endereço real</h1>
+  <p id="identity">Carregando metadados…</p>
+  <p id="device"></p>
+  <p id="capabilities"></p>
+  <p id="address"></p>
+  <p id="parts"></p>
+  <p id="readonly"></p>
+  <p id="timer">Aguardando callback.</p>
+  <p id="beacon">Nenhuma tentativa de beacon.</p>
+  <button id="read">Ler novamente</button>
+  <button id="beacon-button">Consultar fila de beacon</button>
+  <script>
+    function readMetadata() {
+      document.getElementById("identity").textContent = navigator.userAgent + " | identidade compartilhada: " + (navigator === window.navigator);
+      document.getElementById("device").textContent = "Idioma: " + navigator.language + " | plataforma: " + navigator.platform + " | concorrência disponível: " + navigator.hardwareConcurrency;
+      var javaEnabled = navigator.javaEnabled;
+      document.getElementById("capabilities").textContent = "Cookies: " + navigator.cookieEnabled + " | plugins: " + navigator.plugins.length + " | tipos de plugins: " + navigator.mimeTypes.length + " | Java: " + javaEnabled.call(navigator) + " | onLine presente: " + ("onLine" in navigator) + " | languages presente: " + ("languages" in navigator);
+      document.getElementById("address").textContent = document.URL + " | mesmo objeto Location: " + (document.location === window.location);
+      document.getElementById("parts").textContent = "Protocolo: " + location.protocol + " | host: " + location.host + " | caminho: " + location.pathname + " | consulta: " + location.search + " | fragmento: " + location.hash;
+      var readOnly = false;
+      try { location.href = "https://example.invalid/blocked"; }
+      catch (error) { readOnly = true; }
+      document.getElementById("readonly").textContent = "Escrita de endereço recusada: " + readOnly + " | recarregar disponível: " + ("reload" in location) + " | busca de plugin vazio: " + navigator.plugins.namedItem("missing");
+    }
+    document.getElementById("read").onclick = readMetadata;
+    document.getElementById("beacon-button").onclick = function () {
+      document.getElementById("beacon").textContent = "Enfileirado: " + navigator.sendBeacon("https://example.invalid/beacon", "fixture") + " (não há transporte de beacon neste motor).";
+    };
+    readMetadata();
+    setTimeout(function () {
+      document.getElementById("timer").textContent = "Navigator acessível no timer: " + navigator.language;
+    }, 250);
+  </script>
+</body>
+</html>

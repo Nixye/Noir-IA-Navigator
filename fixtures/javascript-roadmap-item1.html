@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<title>Noir: JavaScript do roadmap, etapa 1</title>
+<style>
+body { background: #181b21; color: #eef1e8; font-family: sans-serif; padding: 28px; }
+h1 { color: #d0ee72; }
+pre { white-space: pre-wrap; background: #242832; padding: 18px; }
+</style>
+<h1>JavaScript do roadmap: primeiro incremento</h1>
+<p>Fixture preparada para verificação posterior. Não comprova conformidade ECMAScript.</p>
+<pre id="result">Aguardando execução do motor...</pre>
+<script>
+const lines = [];
+function record(name, value) {
+    lines.push(name + ': ' + (value ? 'OK' : 'FALHOU'));
+    document.getElementById('result').textContent = lines.join('\n');
+}
+class Counter {
+    #value = 0;
+    constructor(value) { this.#value = value; }
+    increment() { this.#value++; return this.#value; }
+}
+const counter = new Counter(4);
+record('Classe e campo privado', counter.increment() === 5);
+const [first, , ...tail] = [1, 2, 3, 4];
+record('Desestruturação, hole e rest', first === 1 && tail.join(',') === '3,4');
+const key = Symbol('id');
+const source = {z: 1, a: 2};
+source[key] = 7;
+const copied = {...source};
+record('Spread, ordem e símbolo', Object.keys(copied).join(',') === 'z,a' && copied[key] === 7);
+const units = String.fromCharCode(0xd800);
+record('UTF-16 isolado e JSON', units.length === 1 && JSON.stringify(units) === '"\\ud800"');
+const values = [1, 2, 3];
+values.length = 1;
+record('Array.length e métodos', values.length === 1 && [3, 1, 2].toSorted().join(',') === '1,2,3');
+const frozen = Object.freeze({value: 3});
+frozen.value = 4;
+record('Object.freeze', frozen.value === 3 && Object.isFrozen(frozen));
+record('Wrappers e protótipos', new String('Noir').slice(1) === 'oir' && [] instanceof Object);
+const collection = new Map();
+collection.set(key, 42);
+record('Map e Symbol', collection.get(key) === 42);
+const buffer = new ArrayBuffer(4);
+const view = new DataView(buffer);
+view.setUint16(0, 513, true);
+record('ArrayBuffer e DataView', view.getUint16(0, true) === 513);
+record('Eval e Function', eval('let value = 6; value + 1;') === 7 && Function('a', 'return a + 1;')(2) === 3);
+const order = [];
+Promise.resolve(1).then(function (value) { order.push(value); });
+queueMicrotask(function () { order.push(2); });
+Promise.all([Promise.resolve(3), 4]).then(function (values) {
+    record('Promises e microtasks FIFO', order.join(',') === '1,2' && values.join(',') === '3,4');
+});
+</script>
+</html>

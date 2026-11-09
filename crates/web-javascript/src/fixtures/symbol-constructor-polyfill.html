@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Symbol constructor descriptor regression</title>
+<p>Synthetic test of a Symbol constructor polyfill. No external resources.</p>
+<script>
+var before = Symbol;
+var wasMissing = Symbol.dispose === undefined;
+if (wasMissing) {
+    Object.defineProperty(Symbol, "dispose", {
+        value: Symbol("dispose"), writable: true, configurable: true
+    });
+}
+var descriptor = Object.getOwnPropertyDescriptor(Symbol, "dispose");
+wasMissing && before === Symbol && typeof Symbol === "function" &&
+typeof descriptor.value === "symbol" && Symbol.dispose === descriptor.value &&
+descriptor.writable && descriptor.configurable && !descriptor.enumerable;
+</script>

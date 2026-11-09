@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Noir: iteração assíncrona limitada</title></head>
+<body>
+<h1>For await...of: fixture não executada</h1>
+<p>Exemplos pequenos para inspeção manual posterior. Não comprovam conformidade geral.</p>
+<p id="sync">Aguardando adaptação síncrona. Esperado: 123.</p>
+<p id="direct">Aguardando iterador async. Esperado: identidade=true, valor=9.</p>
+<p id="close">Aguardando fechamento. Esperado: corpo retorno fechado depois.</p>
+<p id="error">Nenhuma falha reportada até agora.</p>
+<script>
+function report(error) {
+    document.getElementById('error').textContent = 'Falha: ' + String(error);
+}
+async function fromSync() {
+    let text = '';
+    for await (const value of [Promise.resolve(1), 2, Promise.resolve(3)]) {
+        text += value;
+    }
+    document.getElementById('sync').textContent = 'Async-from-Sync: ' + text;
+}
+async function direct() {
+    const promised = Promise.resolve(9);
+    let count = 0;
+    const source = {};
+    source[Symbol.asyncIterator] = function() {
+        return {
+            next: function() {
+                count++;
+                if (count > 1) return Promise.resolve({done: true});
+                return Promise.resolve({done: false, value: promised});
+            }
+        };
+    };
+    for await (const value of source) {
+        const same = value === promised;
+        const resolved = await value;
+        document.getElementById('direct').textContent = 'Identidade=' + same + ', valor=' + resolved;
+    }
+}
+async function closing() {
+    let text = '';
+    const source = {};
+    source[Symbol.asyncIterator] = function() {
+        return {
+            next: function() {
+                return Promise.resolve({done: false, value: 1});
+            },
+            return: function() {
+                text += 'retorno ';
+                return Promise.resolve().then(function() {
+                    text += 'fechado ';
+                    return {done: true};
+                });
+            }
+        };
+    };
+    for await (const value of source) {
+        text += 'corpo ';
+        break;
+    }
+    text += 'depois';
+    document.getElementById('close').textContent = text;
+}
+fromSync().then(function() {}, report);
+direct().then(function() {}, report);
+closing().then(function() {}, report);
+</script>
+</body>
+</html>

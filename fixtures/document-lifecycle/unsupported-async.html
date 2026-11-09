@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Noir: async não suportado</title></head>
+<body><h1>Recusas: fixture-fonte não executada</h1>
+<p id="result">Nenhum efeito async permitido.</p><p id="lifecycle">Aguardando load.</p>
+<script>
+function mark(label) { document.getElementById('result').textContent = 'FALHA: ' + label; }
+window.addEventListener('load', () => {
+    document.getElementById('lifecycle').textContent = 'load:' + document.readyState;
+});
+</script>
+<script async src="./classic.js"></script>
+<script async defer src="./defer-first.js"></script>
+<script type="module" async src="./module.mjs"></script>
+<script type="module" async>mark('modulo-inline-async');</script>
+</body></html>

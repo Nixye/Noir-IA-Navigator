@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Descritores de propriedades — Noir</title>
+<style>body{font:16px/1.5 sans-serif;margin:32px;color:#17251e;background:#f2f6ef}section{padding:24px;max-width:760px;background:white}h1{font-size:26px}pre{padding:16px;background:#e0edd9}</style>
+</head>
+<body>
+<section>
+<h1>Propriedades e acessores do motor próprio</h1>
+<p>Esta página executa os descritores na VM do navegador.</p>
+<pre id="result">Aguardando execução.</pre>
+</section>
+<script>
+const record={value:4};
+Object.defineProperties(record,{
+  score:{get:function(){return this.value*2;},set:function(next){this.value=next/2;},enumerable:true,configurable:true},
+  fixed:{value:7,enumerable:true},
+  hidden:{value:'interno',writable:true,configurable:true}
+});
+record.score=18;
+record.fixed=99;
+const fixed=Object.getOwnPropertyDescriptor(record,'fixed');
+const score=Object.getOwnPropertyDescriptor(record,'score');
+const names=Object.getOwnPropertyNames(record);
+const keys=Object.keys(record);
+const child=Object.create(record,{label:{value:'filho',enumerable:true}});
+child.value=3;
+const correct=record.value===9 && record.score===18 && record.fixed===7 && !(delete record.fixed) && fixed.writable===false && fixed.configurable===false && typeof score.get==='function' && child.score===6 && !keys.join(',').includes('hidden') && names.join(',').includes('hidden');
+document.getElementById('result').textContent=correct?'Descritores ativos: flags, herança e callbacks de acesso.':'A página encontrou um resultado inesperado.';
+</script>
+</body>
+</html>

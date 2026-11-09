@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Código dinâmico limitado — Noir</title>
+<style>body{max-width:800px;margin:40px auto;padding:20px;background:#f3f1eb;color:#24231f;line-height:1.5}h1{font-size:28px}pre{padding:20px;background:#e4e1d7}</style>
+</head><body><h1>eval e Function no interpretador próprio</h1>
+<p>Fixture manual: escopos reais, declaração local, erro de sintaxe e recusa explícita do modo estrito. Não comprova compatibilidade com aplicações externas.</p>
+<pre id="result">Aguardando execução.</pre>
+<script>
+var evalFixtureGlobal=40;
+var evalFixtureOutput='';
+function appendEvalFixture(label,value){evalFixtureOutput=evalFixtureOutput+label+': '+value+'\n';}
+function inspectEvalFixture(){
+ let local=2;
+ appendEvalFixture('eval direto / esperado 42',eval('evalFixtureGlobal+local'));
+ eval('var createdByEval=7; let privateEval=9;');
+ appendEvalFixture('var no chamador / esperado 7',createdByEval);
+ appendEvalFixture('let isolado / esperado undefined',typeof privateEval);
+ const indirect=eval;
+ appendEvalFixture('alias global / esperado undefined',indirect('typeof local'));
+ appendEvalFixture('entrada primitiva / esperado 17',eval(17));
+ appendEvalFixture('última expressão / esperado 3',eval('1+2; var emptyCompletion;'));
+ appendEvalFixture('Function / esperado 42',Function('value','return evalFixtureGlobal+value;')(2));
+ appendEvalFixture('Function global / esperado undefined',new Function('return typeof local;')());
+ let unchanged=0;
+ try{eval('unchanged=1; let duplicate; let duplicate;');}
+ catch(error){appendEvalFixture('erro capturado / esperado SyntaxError',error.name);}
+ appendEvalFixture('recusa antes do efeito / esperado 0',unchanged);
+ try{eval('"use strict"; 1;');}
+ catch(error){appendEvalFixture('modo estrito recusado',error.message);}
+}
+inspectEvalFixture();
+document.getElementById('result').textContent=evalFixtureOutput;
+</script></body></html>

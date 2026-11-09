@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Noir: funções numéricas</title></head>
+<body><h1>Funções numéricas: fixture não executada</h1><p id="result">Aguardando execução.</p>
+<script>
+let order = '';
+const input = { toString() { order += 's'; return 'ff'; } };
+const radix = { valueOf() { order += 'r'; return 16; } };
+const parsed = parseInt(input, radix);
+const correct = parsed === 255 && order === 'sr'
+    && Number.parseInt === parseInt && Number.parseFloat === parseFloat
+    && parseFloat('1.25e+tail') === 1.25 && parseFloat('Infinitytail') === Infinity
+    && Object.is(parseInt('-0'), -0) && parseInt('10', 4294967298) === 2
+    && isFinite('2') && !Number.isFinite('2') && Number.isNaN(NaN)
+    && Number.isSafeInteger(9007199254740991) && !Number.isSafeInteger(9007199254740992);
+document.getElementById('result').textContent = correct ? 'Recorte numérico atendido.' : 'Revisar resultado numérico.';
+</script></body></html>

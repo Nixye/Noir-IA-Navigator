@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Imagens estáticas e Data URLs</title>
+  <style>
+    body { background: #0f0f17; color: #ece9f4; padding: 32px; font-family: sans-serif; }
+    h1 { color: #c6b7ff; }
+    section { margin-bottom: 28px; padding: 18px; background: #171722; }
+    img { display: block; margin-top: 14px; }
+    p { color: #b6afc7; }
+  </style>
+</head>
+<body>
+  <h1>Imagens do motor próprio</h1>
+  <p>Fixture para avaliação manual; formatos animados usam somente o primeiro frame.</p>
+  <section>
+    <h2>SVG estático externo</h2>
+    <p>Formas, traço contínuo e gradiente; não utiliza texto, fontes ou recursos externos.</p>
+    <img src="static-image.svg" width="560" height="160" alt="Ilustração vetorial com monograma e barras">
+  </section>
+  <section>
+    <h2>SVG em Data URL com escapes percentuais</h2>
+    <img src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22280%22%20height%3D%2280%22%3E%3Crect%20width%3D%22280%22%20height%3D%2280%22%20rx%3D%2218%22%20fill%3D%22%23c6b7ff%22%2F%3E%3Ccircle%20cx%3D%2240%22%20cy%3D%2240%22%20r%3D%2220%22%20fill%3D%22%23171722%22%2F%3E%3C%2Fsvg%3E" width="280" height="80" alt="Retângulo violeta com círculo escuro">
+  </section>
+  <section>
+    <h2>PNG local</h2>
+    <img src="palette.png" alt="Paleta de cores">
+  </section>
+</body>
+</html>

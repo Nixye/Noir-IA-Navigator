@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Noir: coerções de objetos</title></head>
+<body>
+<h1>Coerções de objetos: fixture não executada</h1>
+<p id="operators">Aguardando operadores.</p>
+<p id="keys">Aguardando chaves.</p>
+<script>
+let order = '';
+const left = {};
+const right = {};
+left[Symbol.toPrimitive] = function(hint) {
+    order += 'L:' + hint + ' ';
+    return 4n;
+};
+right[Symbol.toPrimitive] = function(hint) {
+    order += 'R:' + hint + ' ';
+    return 7n;
+};
+const sum = left + right;
+document.getElementById('operators').textContent = sum.toString() + ' | ' + order;
+
+const property = {};
+const symbol = Symbol('field');
+property[Symbol.toPrimitive] = function(hint) {
+    order += 'K:' + hint + ' ';
+    return symbol;
+};
+const target = {};
+target[property] = 9n;
+const present = property in target;
+document.getElementById('keys').textContent = target[property].toString() + ' | presente=' + present + ' | ' + order;
+</script>
+</body>
+</html>

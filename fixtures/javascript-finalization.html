@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Noir: finalização limitada</title></head>
+<body><h1>FinalizationRegistry: fixture não executada</h1>
+<p>A limpeza depende de coleta e checkpoint posteriores. Esta página não força GC nem garante execução de callbacks.</p>
+<p id="result">Registro preparado.</p><button id="next" type="button">Abrir outro evento</button>
+<script>
+const registry = new FinalizationRegistry(held => {
+    document.getElementById('result').textContent = 'Cleanup observado: ' + held;
+});
+registry.register({}, 'objeto temporário');
+document.getElementById('next').addEventListener('click', () => {
+    document.getElementById('next').textContent = 'Evento recebido';
+});
+</script></body></html>

@@ -1,0 +1,36 @@
+[workspace]
+resolver = "3"
+members = ["apps/browser-desktop", "apps/browser-cli", "crates/*"]
+
+[workspace.package]
+version = "0.9.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+thiserror = "2"
+url = "2.5"
+browser-ipc = { path = "crates/browser-ipc" }
+browser-core = { path = "crates/browser-core" }
+browser-process = { path = "crates/browser-process" }
+web-dom = { path = "crates/web-dom" }
+web-html = { path = "crates/web-html" }
+web-css = { path = "crates/web-css" }
+web-layout = { path = "crates/web-layout" }
+web-renderer = { path = "crates/web-renderer" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+

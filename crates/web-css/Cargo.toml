@@ -1,0 +1,11 @@
+[package]
+name = "web-css"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[dependencies]
+web-dom.workspace = true
+web-html.workspace = true
+browser-ipc.workspace = true
+[lints]
+workspace = true

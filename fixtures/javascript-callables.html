@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Funções e aliases — Noir 0.9</title>
+<style>body{font:16px sans-serif;margin:28px;color:#dae2ee;background:#171c24}h1{font-size:26px}p{margin:12px 0}</style></head><body>
+<h1>Funções vinculadas e aliases chamáveis</h1>
+<p>Fixture para avaliação manual posterior. Os valores abaixo são produzidos pelo interpretador ao abrir o arquivo.</p>
+<p id="bound">Vínculo pendente</p><p id="alias">Alias pendente</p><p id="apply">Apply pendente</p>
+<p id="constructor">Construção pendente</p><p id="native">Função nativa pendente</p><p id="limits">Limites pendentes</p>
+<script>
+function label(a,b){return this.prefix+a+b;}
+const linked=label.bind({prefix:'N:'},'A');
+document.getElementById('bound').textContent='bind: '+linked('B')+'; length: '+linked.length+'; prototype próprio: '+Object.hasOwn(linked,'prototype');
+const invoke=Function.prototype.call;
+document.getElementById('alias').textContent='alias call: '+invoke.call(label,{prefix:'X:'},'C','D')+'; alias bind: '+Function.prototype.bind.call(label,{prefix:'Y:'},'E')('F');
+let trace='';
+const collection={};
+Object.defineProperty(collection,'length',{get:function(){trace+='L';return 2;}});
+Object.defineProperty(collection,'0',{get:function(){trace+='0';return 'G';}});
+Object.defineProperty(collection,'1',{get:function(){trace+='1';return 'H';}});
+const applied=label.apply({prefix:'Z:'},collection);
+document.getElementById('apply').textContent='array-like: '+applied+'; ordem dos getters: '+trace;
+function Item(a,b){this.value=a+b;}
+const LinkedItem=Item.bind({value:'não usar'},10);
+const item=new LinkedItem(7);
+document.getElementById('constructor').textContent='new: '+item.value+'; instanceof alvo: '+(item instanceof Item)+'; instanceof vínculo: '+(item instanceof LinkedItem)+'; função: '+(LinkedItem instanceof Function);
+const baseTen=parseInt.bind(null,'123');
+const find=document.getElementById.bind(document);
+find('native').textContent='nativa vinculada: '+baseTen(10)+'; Function.prototype compartilhado: '+(Object.getPrototypeOf(linked)===Function.prototype);
+let outcome='';
+try{Function.prototype.bind.call({},null);}catch(error){outcome=error.name;}
+document.getElementById('limits').textContent='receptor não chamável: '+outcome+'; adapters: '+(label.call===Function.prototype.call);
+</script></body></html>

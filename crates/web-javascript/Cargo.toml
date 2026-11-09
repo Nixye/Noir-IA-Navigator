@@ -1,0 +1,16 @@
+[package]
+name = "web-javascript"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sha2 = "=0.10.9"
+web-wasm = { path = "../web-wasm" }
+regex = { version = "1.13", default-features = false, features = ["std", "perf", "unicode"] }
+fancy-regex = { version = "=0.19.2", default-features = false, features = ["std", "perf", "unicode"] }
+unicode-normalization = "=0.1.26"
+url.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Noir: primeiro recorte WebAssembly</title></head>
+<body>
+<h1>WebAssembly: fixture-fonte não executada</h1>
+<p>Item 2 em implementação parcial. Expectativas, não resultados observados. Item 1 permanece aberto.</p>
+<p id="sum">Esperado: validate true / add 42 / identity true</p>
+<p id="view">Esperado: offset true / copy true</p>
+<p id="errors">Esperado: invalid true / compile true / type true</p>
+<p id="eligibility">Esperado: valid-memory true / unsupported LinkError</p>
+<p id="failure">Nenhuma falha reportada até agora.</p>
+<script>
+try {
+    // Binário real: magic/version; type (i32,i32)->i32; function; export add;
+    // code: zero locals, local.get 0, local.get 1, i32.add, end. Não é WAT.
+    const bytes = new Uint8Array([
+        0,97,115,109,1,0,0,0,
+        1,7,1,96,2,127,127,1,127,
+        3,2,1,0,
+        7,7,1,3,97,100,100,0,0,
+        10,9,1,7,0,32,0,32,1,106,11
+    ]);
+    const valid = WebAssembly.validate(bytes);
+    const module = new WebAssembly.Module(bytes);
+    const instance = new WebAssembly.Instance(module);
+    const add = instance.exports.add;
+    document.getElementById('sum').textContent =
+        'validate ' + valid + ' / add ' + add(20,22) +
+        ' / identity ' + (add === instance.exports.add);
+
+    // Lixo antes/depois da view não integra o BufferSource passado.
+    const padded = new Uint8Array(bytes.length + 4);
+    padded[0] = 255;
+    padded[padded.length - 1] = 255;
+    for (let i = 0; i < bytes.length; i++) { padded[i + 2] = bytes[i]; }
+    const view = new DataView(padded.buffer, 2, bytes.length);
+    const offsetValid = WebAssembly.validate(view);
+    const copied = new WebAssembly.Module(view);
+    padded[2] = 255;
+    document.getElementById('view').textContent =
+        'offset ' + offsetValid + ' / copy ' +
+        (new WebAssembly.Instance(copied).exports.add(40,2) === 42);
+
+    const invalid = new Uint8Array([0,97,115,109,1,0,0]);
+    let compileError = false;
+    let typeError = false;
+    try { new WebAssembly.Module(invalid); }
+    catch (error) { compileError = error.name === 'CompileError'; }
+    try { WebAssembly.validate({ buffer: bytes.buffer, byteOffset: 0, byteLength: bytes.length }); }
+    catch (error) { typeError = error.name === 'TypeError'; }
+    document.getElementById('errors').textContent =
+        'invalid ' + (WebAssembly.validate(invalid) === false) +
+        ' / compile ' + compileError + ' / type ' + typeError;
+
+    // Módulo válido com uma memória de uma página, sem export: não elegível.
+    // A validação/compilação não promete que Instance suporte seu estado.
+    const memoryBytes = new Uint8Array([0,97,115,109,1,0,0,0,5,3,1,0,1]);
+    const memoryValid = WebAssembly.validate(memoryBytes);
+    const memoryModule = new WebAssembly.Module(memoryBytes);
+    let unsupported = 'nenhum';
+    try { new WebAssembly.Instance(memoryModule); }
+    catch (error) { unsupported = error.name; }
+    document.getElementById('eligibility').textContent =
+        'valid-memory ' + memoryValid + ' / unsupported ' + unsupported;
+} catch (error) {
+    document.getElementById('failure').textContent = 'Falha: ' + error.name + ': ' + error.message;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Noir: ciclo de vida inicial</title></head>
+<body><h1>Item 4: fixture-fonte não executada</h1>
+<p>Comparar trace com README local. Não é prova de conformidade Web.</p>
+<pre id="trace"></pre><p id="result">Aguardando timer.</p>
+<script>
+function mark(label) {
+    document.getElementById('trace').textContent += label + ':' + document.readyState + '\n';
+}
+mark('inline');
+queueMicrotask(() => mark('micro-inline'));
+document.addEventListener('readystatechange', () => {
+    mark('readystatechange');
+    queueMicrotask(() => mark('micro-readystatechange'));
+});
+document.addEventListener('DOMContentLoaded', () => {
+    mark('DOMContentLoaded');
+    queueMicrotask(() => mark('micro-DOMContentLoaded'));
+});
+window.addEventListener('load', () => {
+    mark('load');
+    queueMicrotask(() => mark('micro-load'));
+});
+setTimeout(() => {
+    mark('timer');
+    document.getElementById('result').textContent = 'Timer executado; comparar trace com README.';
+}, 0);
+</script>
+<script defer src="./defer-first.js"></script>
+<script src="./classic.js"></script>
+<script type="module" src="./module.mjs"></script>
+<script defer src="./defer-last.js"></script>
+<script type="module">
+mark('module-inline');
+queueMicrotask(() => mark('micro-module-inline'));
+</script>
+<script async defer>mark('inline-async-defer');</script>
+</body></html>

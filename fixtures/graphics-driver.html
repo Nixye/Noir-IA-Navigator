@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Driver de pintura — Noir</title>
+<style>
+body{margin:24px;background:#12191c;color:#e8eee4;font:18px/1.5 sans-serif}
+h1{font-size:36px;color:#d7eba4}section{padding:24px;margin-bottom:18px;background:#253034;width:680px}
+.alpha{background:rgba(80,160,200,.45);padding:18px;width:400px}.bold{font-weight:bold}input{width:300px;padding:8px}
+</style></head><body>
+<h1>Geometria, texto e composição</h1>
+<section><p>Texto: ação, ciência, navegação, 0123456789.</p><p class="bold">Cobertura sintética de negrito e espaçamento.</p><div class="alpha">Alpha sobre fundo e composição da página.</div></section>
+<section><p>Controles mantêm entrada nativa entre os lotes de pintura:</p><input value="Edite este campo"><button type="button" id="change">Atualizar texto</button><p id="value">Aguardando edição.</p></section>
+<section><p>Use zoom e rolagem para observar a cena retida.</p><img alt="Quadrados com alpha" width="160" height="160" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Crect width='120' height='120' fill='%23d7eba4'/%3E%3Crect x='40' y='40' width='120' height='120' fill='%234b9ac0' fill-opacity='.6'/%3E%3C/svg%3E"></section>
+<script>document.getElementById('change').onclick=function(){document.getElementById('value').textContent='Documento atualizado: '+document.querySelector('input').value;};</script>
+</body></html>

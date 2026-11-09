@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Globais e bitwise — Noir</title></head>
+<body><h1>JavaScript próprio</h1><p id="out">Aguardando execução.</p>
+<script>
+window.noirDemo = window.noirDemo || {};
+var state = noirDemo;
+state.mask = 0;
+state.mask |= 4;
+state.mask ^= 1;
+state.mask <<= 2;
+state.unsigned = -1 >>> 0;
+state.signed = -16 >> 2;
+state.wrap = 4294967297 | 0;
+state.run = function () {
+  document.getElementById('out').textContent = 'Máscara: ' + state.mask + '; unsigned: ' + state.unsigned + '; signed: ' + state.signed + '; wrap: ' + state.wrap + '; aliases: ' + (window === globalThis && self === window);
+};
+window.state.run();
+</script></body></html>

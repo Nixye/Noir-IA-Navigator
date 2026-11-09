@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Árvore DOM e erros — Noir 0.7</title>
+<style>
+body { margin: 32px; font: 16px/1.5 sans-serif; background: #f3f5f0; color: #182322; }
+main { max-width: 760px; padding: 24px; background: white; }
+li { margin: 8px; padding: 8px; background: #dfebd8; }
+pre { padding: 12px; background: #ecf0e8; }
+</style>
+</head>
+<body>
+<main>
+<h1>Mutações e relações da árvore</h1>
+<ol id="items">
+<li id="alpha">Alpha</li>
+<li id="omega">Omega</li>
+</ol>
+<pre id="result">Aguardando a execução.</pre>
+<h2>window.onerror</h2>
+<p>Um timer lança um erro de demonstração; o handler recebe a mensagem. O diagnóstico do motor permanece disponível.</p>
+<pre id="error">Aguardando o timer.</pre>
+</main>
+<script>
+const items=document.getElementById('items');
+const alpha=document.getElementById('alpha');
+const omega=document.getElementById('omega');
+const first=document.createElement('li');
+first.textContent='Inserido no início';
+first.setAttribute('data-kind','inserted');
+items.insertBefore(first,items.firstChild);
+const copy=first.cloneNode(true);
+copy.textContent='Cópia profunda';
+items.appendChild(copy);
+const removed=items.removeChild(alpha);
+const wasDetached=!removed.isConnected;
+const replaced=items.replaceChild(removed,omega);
+const insert=items.insertBefore;
+insert.call(items,replaced,copy);
+document.getElementById('result').textContent=
+ 'Elementos: '+items.childElementCount+
+ ' | Primeiro: '+items.firstElementChild.textContent+
+ ' | Último: '+items.lastElementChild.textContent+
+ ' | Destacado antes de reinserir: '+wasDetached+
+ ' | Vizinho anterior da cópia: '+copy.previousElementSibling.textContent;
+window.onerror=function(message,source,line,column,error){
+ document.getElementById('error').textContent='Mensagem recebida: '+message;
+ return true;
+};
+setTimeout(function(){throw 'Erro de demonstração do timer';},0);
+</script>
+</body>
+</html>

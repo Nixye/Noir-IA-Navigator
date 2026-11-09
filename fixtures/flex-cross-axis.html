@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Noir: Flex transversal com altura definida</title>
+<style>
+body { margin:0; font-size:16px; line-height:20px; color:#17212b; background:#ffffff; }
+p { margin:12px 0; }
+.line { display:flex; flex-direction:row; flex-wrap:nowrap; width:360px; height:100px; background:#dcecff; }
+.item { width:60px; height:20px; margin:10px 0 6px; padding:0; border:0; background:#237b52; }
+.center { align-items:center; }
+.end { align-items:flex-end; }
+.reverse { flex-direction:row-reverse; }
+.stretch { align-items:stretch; }
+.auto { height:auto; padding:4px; border:2px solid #237b52; background:#b8e5cd; }
+.inner { height:20px; }
+.tall { height:140px; background:#dc9370; }
+.clipped { overflow:hidden; }
+.borderbox { height:120px; box-sizing:border-box; padding:8px; border:2px solid #17212b; }
+.reference { height:200px; }
+.minimum { min-height:200px; }
+.percent { height:50%; }
+.panel { width:180px; height:60px; margin:10px 0 6px; overflow:hidden; background:#b8e5cd; }
+input { width:140px; height:20px; }
+</style>
+</head>
+<body>
+<!-- Coordenadas relativas ao content box da linha. Expectativas, nao resultados observados. Fixture nao executada. -->
+<div id="center" class="line center"><div class="item"></div></div>
+<p>Centro: L=100, H externo=36. Border box do filho em y=42, altura=20.</p>
+<div id="end-reverse" class="line end reverse"><div class="item"></div></div>
+<p>Fim em row-reverse: y=74, altura=20. A inversao horizontal nao muda y.</p>
+<div id="center-borderbox" class="line center borderbox"><div class="item"></div></div>
+<p>Border-box: 120 - 16 padding - 4 borda = 100 de conteudo. Filho y=42 relativo ao conteudo, ou 52 relativo ao topo externo do pai.</p>
+<div id="stretch" class="line stretch"><div class="item auto"><div class="inner"></div></div><div class="item"></div></div>
+<p>Stretch: caixa automatica cresce visualmente para 84, y=10; padding/bordas inclusos. Caixa explicita continua com altura 20. Sem encolhimento, relayout percentual ou stretch de controles diretos.</p>
+<div id="overflow-center" class="line center clipped"><div class="item tall"></div></div>
+<p>Overflow no centro: H externo=156, border box y=-18 e altura=140, pintura recortada pelo pai.</p>
+<div id="overflow-end" class="line end clipped"><div class="item tall"></div></div>
+<p>Overflow no fim: y=-46, altura=140, pintura recortada pelo pai.</p>
+<div class="reference"><div id="resolved-percent" class="line center percent"><div class="item"></div></div></div>
+<p>Percentual definido: 50% de 200 = 100, filho y=42.</p>
+<div class="minimum"><div id="unresolved-percent" class="line center percent"><div class="item"></div></div></div>
+<p>Somente min-height no pai nao define a referencia de 50%. Mantem o caminho de altura automatica; nao esperar y=42 por resolver 50% do minimo.</p>
+<div id="interaction" class="line center clipped"><div class="panel"><a href="#center">Link dentro da caixa</a><input type="text" value="Controle deslocado"><div style="height:80px">Conteudo excedente</div></div></div>
+<p>Caixa interativa: H externo=76, border box y=22 e altura=60. Inspecao futura: pintura, clip proprio, links e controle acompanham o deslocamento; clip do pai nao se desloca.</p>
+<p>Item 7 parcial. Revisao textual concluida sem bloqueadores e check estatico aprovado. Nenhum teste, fixture ou aplicativo executado. Sem validacao visual/funcional ou conformidade CSS declarada.</p>
+</body>
+</html>

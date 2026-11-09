@@ -1,0 +1,13 @@
+[package]
+name = "web-graphics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+browser-ipc.workspace = true
+fontdue = "0.9"
+epaint_default_fonts = "0.37"
+
+[lints]
+workspace = true

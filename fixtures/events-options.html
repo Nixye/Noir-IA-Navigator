@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Eventos e opções — Noir 0.9</title>
+<style>body{background:#171b23;color:#dde6ee;font:16px sans-serif;margin:32px}button{padding:12px;margin:10px}#parent{padding:18px;border:2px solid #84969c}#log{white-space:pre-wrap}</style>
+</head><body><h1>Eventos do motor próprio</h1>
+<p>Fixture manual: clique nos botões e observe captura, alvo, bubble, once e cancelamento do objeto Event. Não constitui resultado de teste.</p>
+<div id="parent"><button id="target">Disparar sequência</button><button id="stop">Interromper propagação</button></div>
+<p id="log">Aguardando interação.</p>
+<script>
+var parent=document.getElementById('parent');
+var target=document.getElementById('target');
+var stop=document.getElementById('stop');
+var log=document.getElementById('log');
+var retained=null;
+function line(text){log.textContent=log.textContent+'\n'+text;}
+function detail(label,event){line(label+' fase='+event.eventPhase+' alvo='+event.target.id+' atual='+event.currentTarget.nodeName);}
+parent.addEventListener('click',function(event){detail('captura pai',event);},true);
+parent.addEventListener('click',function(event){detail('bubble pai',event);},{capture:false});
+target.addEventListener('click',function(event){event.preventDefault();line('passive defaultPrevented='+event.defaultPrevented);},{passive:true});
+target.addEventListener('click',function(event){event.preventDefault();retained=event;line('once defaultPrevented='+event.defaultPrevented);},{once:true});
+target.addEventListener('click',function(event){detail('alvo',event);if(retained){line('Event anterior fase='+retained.eventPhase);}});
+function removed(event){line('Este listener foi removido e não deve executar.');}
+target.addEventListener('click',removed,true);
+target.removeEventListener('click',removed,{capture:true});
+stop.addEventListener('click',function(event){detail('stopImmediatePropagation',event);event.stopImmediatePropagation();});
+stop.addEventListener('click',function(event){line('Este listener foi interrompido e não deve executar.');});
+target.onerror=function(event){line('Handler onerror do nó: '+event.type);};
+line('target.onerror='+typeof target.onerror+'; error events de recursos ainda não são emitidos.');
+var print=console.log;
+print('Alias console.log disponível nesta fixture.');
+var contains=parent.classList.contains;
+line('Alias classList.contains='+contains.call(parent.classList,'absent'));
+</script></body></html>

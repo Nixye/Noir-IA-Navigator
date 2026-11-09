@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="pt-BR"><meta charset="utf-8"><title>Expressões regulares — Noir</title>
+<style>body{font-family:sans-serif;max-width:760px;margin:40px auto;padding:20px;line-height:1.5;background:#f5f7fa;color:#1e2633}h1{font-size:28px}label,input,button{margin:6px}input{width:220px;padding:9px}button{padding:9px 18px}pre{background:#e9edf4;padding:20px}</style>
+<h1>Busca textual real no motor próprio</h1>
+<p>As letras são interpretadas por RegExp; resultados e substituições são calculados na mesma sessão JavaScript.</p>
+<label for="source">Texto</label><input id="source" value="Noir 12, abas 34"><button id="run" type="button">Executar</button>
+<pre id="result">Aguardando o script.</pre>
+<script>
+function refresh(){
+ const text=document.getElementById('source').value;
+ const digits=text.match(/\d+/g);
+ const substituted=text.replace(/(\d+)/g,(match,n,index)=>'['+n+':'+index+']');
+ const words=text.split(/\s+/);
+ const found=/abas/i.exec(text);
+ const named=/(?<word>ab)\k<word>/.exec('abab');
+ const advanced='ab12 ac34'.match(/(?<=ab)\d+(?!\d)/g);
+ const ahead=/ab(?=12)/.test('ab12');
+ const negative=/(?<!ab)34/.test('ac34');
+ const scoped=/(?i:noir)(?-i:X)/.test('NOIRX');
+ const renamed='Noir 12'.replace(/(?<word>\w+)\s+(?<number>\d+)/,'$<number>:$<word>');
+ const callback='aa'.replace(/(?<letter>a)/g,function(match,letter,index,input,groups){return groups.letter+index;});
+ document.getElementById('result').textContent='Números: '+(digits?digits.join(', '):'nenhum')+'\nSubstituição: '+substituted+'\nPalavras: '+words.join(' | ')+'\nÍndice de abas: '+(found?found.index:-1)+'\nGrupo/backreference: '+(named?named.groups.word:'ausente')+'\nLookbehind + negação: '+(advanced?advanced.join(', '):'nenhum')+'\nLookahead: '+ahead+' / lookbehind negativo: '+negative+'\nFlags locais: '+scoped+'\nSubstituição nomeada: '+renamed+'\nCallback nomeado: '+callback;
+}
+document.getElementById('run').addEventListener('click',refresh);refresh();
+</script></html>

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Noir: async generators limitados</title></head>
+<body>
+<h1>Async generators: fixture não executada</h1>
+<p>Exemplos pequenos para inspeção manual posterior, sem comprovação de conformidade.</p>
+<p id="queue">Aguardando fila. Esperado: 1:false 2:false 3:true.</p>
+<p id="close">Aguardando fechamento. Esperado: corpo:7 finally fechado depois.</p>
+<p id="error">Nenhuma falha reportada até agora.</p>
+<script>
+function report(error) {
+    document.getElementById('error').textContent = 'Falha: ' + String(error);
+}
+async function* sequence() {
+    yield Promise.resolve(1);
+    yield 2;
+    return Promise.resolve(3);
+}
+async function queued() {
+    const iterator = sequence();
+    const first = iterator.next(99);
+    const second = iterator.next();
+    const third = iterator.next();
+    const a = await first;
+    const b = await second;
+    const c = await third;
+    document.getElementById('queue').textContent = a.value + ':' + a.done + ' ' + b.value + ':' + b.done + ' ' + c.value + ':' + c.done;
+}
+let closingText = '';
+async function* closingSource() {
+    try {
+        yield Promise.resolve(7);
+        yield 8;
+    } finally {
+        closingText += 'finally ';
+        await Promise.resolve();
+        closingText += 'fechado ';
+    }
+}
+async function closing() {
+    for await (const value of closingSource()) {
+        closingText += 'corpo:' + value + ' ';
+        break;
+    }
+    closingText += 'depois';
+    document.getElementById('close').textContent = closingText;
+}
+queued().then(function() {}, report);
+closing().then(function() {}, report);
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Noir: Math intrínseco</title></head>
+<body><h1>Math: fixture não executada</h1><p id="result">Aguardando execução.</p>
+<script>
+var Math;
+let effects = '';
+const input = { valueOf() { effects += 'v'; return -7; } };
+const converted = Math.abs(input);
+const correct = Math === window.Math && typeof Math === 'object'
+    && converted === 7 && effects === 'v' && Math.hypot(3, 4) === 5
+    && Math.imul(4294967295, 5) === -5 && Object.is(Math.round(-0.5), -0)
+    && Object.is(Math.min(0, -0), -0) && Object.keys(Math).length === 0
+    && typeof Math.random === 'undefined';
+document.getElementById('result').textContent = correct ? 'Recorte Math atendido.' : 'Revisar resultado Math.';
+</script></body></html>

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Condições CSS e atributos — Noir 0.9</title>
+<style>@charset "UTF-8";
+@import "not-authorized.css";
+body { margin: 28px; background: #18212b; color: #e3e8ed; font-size: 16px; }
+h1 { font-size: 26px; }
+.case { margin: 14px 0; padding: 12px; border: 2px solid #657487; width: 520px; }
+@supports (display: flex) and (overflow: hidden) {
+  .supported { background: #244436; }
+  @media (min-width: 760px) { .supported { width: 650px; } }
+}
+@supports not (position: fixed) { .fallback { border-color: yellow; } }
+@supports (display: flex) or (unknown-property: value) { .alternative { background: #243952; } }
+@supports (display: flex) and (position: fixed) { .unsupported { display: none; } }
+@supports selector(p:lang(pt)) { .language:lang(pt) { color: #b8e58e; } }
+[data\2d state="re\61 dy" i] { border-color: #8ab4eb; }
+[data-quote='it\'s ready'] { background: #3e3158; }
+p:lang(en) { color: #a0c8f0; }
+@layer unsupported-layer { .layer-skipped { display: none; } }
+</style></head><body>
+<h1>Condições, herança de idioma e escapes CSS</h1>
+<p>Fixture manual: sua presença não indica execução ou aprovação.</p>
+<div class="case supported">Fundo verde se Flex e overflow hidden forem reconhecidos. A largura muda acima de 760 px.</div>
+<div class="case fallback">Borda amarela: fixed permanece fora do subconjunto e ativa o fallback.</div>
+<div class="case alternative">Fundo azulado: uma alternativa reconhecida torna a condição or verdadeira.</div>
+<div class="case unsupported">Este conteúdo continua visível: a condição and exige todas as capacidades.</div>
+<p class="case language">Texto verde por :lang(pt), herdado de html lang=pt-BR.</p>
+<section lang="en-GB"><p class="case">Texto azulado por idioma inglês herdado.</p></section>
+<section lang=""><p class="case language">Idioma explicitamente vazio bloqueia a herança do português.</p></section>
+<div class="case" data-state="READY">Borda azul por atributo com nome e valor escapados, comparação ASCII i.</div>
+<div class="case" data-quote="it's ready">Fundo roxo por apóstrofo escapado.</div>
+<div class="case layer-skipped">Visível: @layer ainda não foi implementado e não é achatado na cascata.</div>
+<p>Os avisos de @import e @layer são esperados. Import não abre arquivos nem URLs; a regra seguinte deve continuar sendo aplicada.</p>
+</body></html>

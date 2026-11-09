@@ -1,0 +1,29 @@
+[package]
+name = "browser-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "noir"
+path = "src/main.rs"
+
+[dependencies]
+browser-ipc.workspace = true
+browser-core.workspace = true
+browser-process.workspace = true
+web-graphics = { path = "../../crates/web-graphics" }
+browser-config = { path = "../../crates/browser-config" }
+ai-context = { path = "../../crates/ai-context" }
+ai-runtime = { path = "../../crates/ai-runtime" }
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "wgpu", "x11", "wayland", "accesskit", "clipboard"] }
+rfd = "0.17"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+url.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+window-vibrancy = "0.8.1"
+
+[lints]
+workspace = true
+

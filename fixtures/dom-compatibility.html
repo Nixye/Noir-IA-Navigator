@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Metadados e consultas DOM</title>
+<style>
+body { margin: 32px; color: #202124; background: #f6f8fa; font: 16px/1.5 sans-serif; }
+main { padding: 24px; background: white; }
+pre { margin-top: 24px; padding: 16px; background: #e4edd6; }
+</style>
+</head>
+<body>
+<main id="demo" class="panel">
+  <h1>Compatibilidade DOM</h1>
+  <p id="message" class="content">Árvore, metadados e consultas reais.</p>
+  <pre id="result">Aguardando o script.</pre>
+</main>
+<script>
+const message=document.getElementById('message');
+message.setAttribute('DATA-READY','yes');
+const ok=document.compatMode==='CSS1Compat'
+  && document.prerendering===false
+  && message.nodeType===1
+  && message.nodeName==='P'
+  && message.ownerDocument===document
+  && document.contains(message)
+  && message.closest('.panel')===document.getElementById('demo')
+  && message.matches('.content')
+  && message.hasAttribute('data-ready')
+  && 'hasAttribute' in message;
+document.getElementById('result').textContent=ok?'DOM verificado: CSS1Compat, árvore e seletores.':'Falha na verificação DOM.';
+</script>
+</body>
+</html>

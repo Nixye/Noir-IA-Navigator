@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Dimensões e envio de controles</title>
+<style>
+body { margin: 24px; font: 16px/1.5 sans-serif; background: white; color: #202124; }
+.account { display: inline-block; box-sizing: border-box; min-height: 40px; padding: 10px 24px; font: 14px/18px sans-serif; background: #0b57d0; color: white; }
+.search { margin: 24px 0; }
+.search input[type=search] { width: 360px; font: 18px sans-serif; }
+.search input[type=submit] { height: 30px; font: 15px sans-serif; margin: 4px; }
+.small { width: 72px; height: 24px; }
+</style>
+</head>
+<body>
+<a class="account" href="https://example.com/">Entrar</a>
+<form class="search" action="https://example.com/search" method="get">
+  <input type="hidden" name="hl" value="pt-BR">
+  <input type="search" name="q" placeholder="Pesquisar referência">
+  <br>
+  <input type="submit" name="first" value="Pesquisa na Web">
+  <input type="submit" name="second" value="Outra ação">
+</form>
+<p>O botão de 24px abaixo mantém o rótulo numa linha e recorta o excedente:</p>
+<input class="small" type="button" value="Rótulo longo com espaços">
+</body>
+</html>

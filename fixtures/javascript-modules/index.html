@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Noir: módulos estáticos</title></head>
+<body><h1>Módulos estáticos: fixture não executada</h1>
+<p id="result">Aguardando execução do módulo.</p><p id="ready">Aguardando DOMContentLoaded.</p>
+<p id="dynamic">Aguardando importação de módulo já registrado.</p>
+<script type="module" src="./entry.mjs"></script>
+<script>
+var classicOrder = 'clássico antes do módulo';
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('ready').textContent = 'DOMContentLoaded depois do módulo';
+});
+</script>
+<script nomodule>document.getElementById('result').textContent = 'nomodule não deve executar';</script>
+</body></html>

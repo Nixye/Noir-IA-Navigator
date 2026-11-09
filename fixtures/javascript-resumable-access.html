@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Noir: acessos resumíveis</title></head>
+<body>
+<h1>Acessos resumíveis: fixture não executada</h1>
+<p>Expectativas para inspeção manual posterior, não resultados observados.</p>
+<p id="async">Esperado: leitura true / receiver true / callee true</p>
+<p id="order">Esperado: BKCGAFO / erros true</p>
+<p id="nullish">Esperado: chave true / coerção true / precedência true</p>
+<p id="generator">Esperado: base,chave,arg / 12:true</p>
+<p id="error">Nenhuma falha reportada até agora.</p>
+<script>
+function report(error) {
+    document.getElementById('error').textContent = 'Falha: ' + String(error);
+}
+async function run() {
+    const obj = { value: 7, method: function(x) { return this.value + x; } };
+    const read = (await Promise.resolve(obj))[await Promise.resolve('value')];
+    let selected = obj;
+    async function argument() {
+        selected = { value: 100 };
+        obj.method = function() { return -1; };
+        return 5;
+    }
+    const result = (await Promise.resolve(selected))[await Promise.resolve('method')](await argument());
+    const fn = function(x) { return x * 2; };
+    const call = (await Promise.resolve(fn))(await Promise.resolve(6));
+    document.getElementById('async').textContent = 'leitura ' + (read === 7) + ' / receiver ' + (result === 12) + ' / callee ' + (call === 12);
+
+    let log = '';
+    const target = {};
+    const key = {};
+    key[Symbol.toPrimitive] = function(hint) { log += 'C'; return 'method'; };
+    Object.defineProperty(target, 'method', { get: function() {
+        log += 'G';
+        return function(x) { log += 'F'; return this === target && x === 4; };
+    } });
+    function base() { log += 'B'; return target; }
+    function property() { log += 'K'; return key; }
+    function arg() { log += 'A'; return 4; }
+    const ordered = (await Promise.resolve(base()))[await Promise.resolve(property())](await Promise.resolve(arg()));
+    if (ordered) { log += 'O'; }
+    let args = 0;
+    const bad = {};
+    Object.defineProperty(bad, 'method', { get: function() { throw 'getter'; } });
+    let getterFirst = false;
+    try { (await Promise.resolve(bad)).method(await Promise.resolve(args++)); }
+    catch (error) { getterFirst = error === 'getter' && args === 0; }
+    let callableLast = false;
+    try { (await Promise.resolve(5))(await Promise.resolve(args++)); }
+    catch (error) { callableLast = error.name === 'TypeError' && args === 1; }
+    document.getElementById('order').textContent = log + ' / erros ' + (getterFirst && callableLast);
+
+    let evaluated = 0;
+    let converted = 0;
+    const nullKey = {};
+    nullKey[Symbol.toPrimitive] = function() { converted++; return 'x'; };
+    function nullProperty() { evaluated++; return nullKey; }
+    let nullType = false;
+    try { (await Promise.resolve(null))[await Promise.resolve(nullProperty())]; }
+    catch (error) { nullType = error.name === 'TypeError'; }
+    function failKey() { throw 'key'; }
+    let precedence = false;
+    try { (await Promise.resolve(null))[await Promise.resolve(failKey())]; }
+    catch (error) { precedence = error === 'key'; }
+    document.getElementById('nullish').textContent = 'chave ' + (evaluated === 1 && nullType) + ' / coerção ' + (converted === 0) + ' / precedência ' + precedence;
+}
+function* access() { return (yield 'base')[yield 'chave'](yield 'arg'); }
+try {
+    const it = access();
+    const obj = { value: 7, method: function(x) { return this.value + x; } };
+    const a = it.next();
+    const b = it.next(obj);
+    const c = it.next('method');
+    const d = it.next(5);
+    document.getElementById('generator').textContent = a.value + ',' + b.value + ',' + c.value + ' / ' + d.value + ':' + d.done;
+} catch (error) { report(error); }
+run().then(function() {}, report);
+</script>
+</body>
+</html>

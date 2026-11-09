@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Eventos programáticos — Noir</title>
+<style>body{background:#171b23;color:#dde6ee;font:16px sans-serif;margin:32px}button{padding:12px;margin:10px}#parent{padding:18px;border:2px solid #b4d25d}#log{white-space:pre-wrap}</style>
+</head><body><h1>Event e CustomEvent: primeiro recorte</h1>
+<p>Fixture-fonte para interação posterior. Não foi executada e não comprova compatibilidade.</p>
+<div id="parent"><button id="emit">Emitir CustomEvent</button></div>
+<p>Esperado por clique: captura window → document → pai → alvo captura → passive → once (somente primeiro clique) → alvo → pai bubble → document bubble → window bubble. O listener do alvo cancela: retorno false, defaultPrevented true. Depois: currentTarget null e fase zero.</p>
+<p>O mesmo evento é reutilizado em nó destacado, sem alcançar document/window. Cancelamento persiste; target muda. A microtask só aparece depois do fim do listener de click.</p>
+<p id="log">Aguardando clique.</p>
+<script>
+var parent=document.getElementById('parent');
+var button=document.getElementById('emit');
+var output=document.getElementById('log');
+var payload={message:'identidade preservada'};
+var count=0;
+function line(text){output.textContent=output.textContent+'\n'+text;}
+function note(label,e){line(label+' fase='+e.eventPhase+' this/atual='+(this===e.currentTarget)+' alvo='+(e.target===button));}
+window.addEventListener('noir-demo',function(e){note.call(this,'window captura',e);},true);
+document.addEventListener('noir-demo',function(e){note.call(this,'document captura',e);},true);
+parent.addEventListener('noir-demo',function(e){note.call(this,'pai captura',e);},true);
+button.addEventListener('noir-demo',function(e){note.call(this,'alvo captura',e);},true);
+button.addEventListener('noir-demo',function(e){e.preventDefault();line('passive cancelado='+e.defaultPrevented);},{passive:true});
+button.addEventListener('noir-demo',function(e){line('once');},{once:true});
+button.addEventListener('noir-demo',function(e){
+  note.call(this,'alvo',e);
+  line('detail identidade='+(e.detail===payload));
+  e.preventDefault();
+  try{button.dispatchEvent(e);line('ERRO: reentrada permitida');}catch(error){line('reentrada do mesmo Event recusada');}
+  queueMicrotask(function(){line('microtask: depois do fim click');});
+});
+parent.addEventListener('noir-demo',function(e){note.call(this,'pai bubble',e);});
+document.addEventListener('noir-demo',function(e){note.call(this,'document bubble',e);});
+window.addEventListener('noir-demo',function(e){note.call(this,'window bubble',e);});
+var detached=document.createElement('div');
+detached.addEventListener('noir-demo',function(e){line('destacado: target correto='+(e.target===detached));});
+button.addEventListener('click',function(){
+  count++;
+  output.textContent='Clique '+count;
+  var event=new CustomEvent('noir-demo',{bubbles:true,cancelable:true,detail:payload});
+  line('antes: target null='+(event.target===null));
+  var result=button.dispatchEvent(event);
+  line('retorno='+result+' cancelado='+event.defaultPrevented);
+  line('depois: atual null='+(event.currentTarget===null)+' fase='+event.eventPhase);
+  line('reuso destacado retorno='+detached.dispatchEvent(event));
+  var plain=new Event('plain');
+  line('Event default bubbles='+plain.bubbles+' cancelable='+plain.cancelable+' retorno='+detached.dispatchEvent(plain));
+  line('fim click');
+});
+</script></body></html>

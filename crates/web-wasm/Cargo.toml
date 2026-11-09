@@ -1,0 +1,13 @@
+[package]
+name = "web-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+wasmi = { version = "=2.0.0", default-features = false, features = ["std", "validate", "stable", "portable-dispatch", "extra-checks"] }
+wasmparser = { version = "=0.228.0", default-features = false, features = ["std", "validate", "features"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Posicionamento e tabelas — Noir</title>
+<style>
+html { font-size:62.5%; } body { margin:2rem; background:#f4f6fa; color:#20304a; font-size:1.6rem; }
+h1 { font-size:2.6rem; } .stage { position:relative; width:56rem; max-width:90vw; height:28rem; margin:2rem auto; padding:2rem; border:2px solid #899bb5; background:white; }
+.badge { position:absolute; width:12rem; padding:1rem; background:#dce5ff; text-align:center; }
+.a { top:10%; left:5%; } .b { top:10%; right:5%; } .c { bottom:10%; left:5%; } .d { bottom:10%; right:5%; }
+.middle { position:relative; top:9rem; left:5rem; width:28rem; text-align:center; background:#eef1f6; padding:1rem; }
+.flow { display:flex; position:relative; gap:1rem; margin:2rem 0; padding:1rem; border:1px solid #899bb5; }
+.flow > div { flex:1; padding:1rem; background:#dce5ff; } .flow > .floating { position:absolute; top:-1rem; right:1rem; width:10rem; background:#fff2bb; }
+.screen-reader-text { position:absolute; clip:rect(1px,1px,1px,1px); width:1px; height:1px; overflow:hidden; }
+table { width:90%; margin:1rem auto; background:white; border-spacing:.5rem; } td,th { padding:1rem; border:1px solid #aabbcc; } .right { text-align:right; } .invisible { visibility:hidden; }
+</style></head><body>
+<center><h1>Caixas com posição própria</h1><p>O centro e os quatro links abaixo usam o motor do Noir.</p></center>
+<div class="stage"><a class="badge a" href="https://pt.wikipedia.org/">Superior esquerdo</a><a class="badge b" href="https://www.google.com.br/">Superior direito</a><a class="badge c" href="https://www.mozilla.org/">Inferior esquerdo</a><a class="badge d" href="https://github.com/">Inferior direito</a><div class="middle">Este bloco é deslocado relativamente e conserva seu espaço original.</div><span class="screen-reader-text">Texto de acessibilidade não deve ser pintado em área vazia.</span></div>
+<div class="flow"><div>Primeira coluna</div><div>Segunda coluna</div><div class="floating">Fora do fluxo</div></div>
+<table cellspacing="4"><tr><th width="25%">Item</th><th>Descrição</th><th width="20%">Valor</th></tr><tr><td>Local</td><td>Texto em uma célula de largura automática.</td><td class="right">42</td></tr><tr><td>Visibilidade</td><td><span class="invisible">Reservado</span>Depois do espaço reservado.</td><td class="right">1rem = 10px</td></tr></table>
+<form action="https://www.google.com.br/search" method="get"><label>Buscar: <input name="q" placeholder="Texto"></label> <select name="hl"><option value="pt-BR" selected>Português</option><option value="en">English</option><optgroup label="Indisponível" disabled><option value="fr">Français</option></optgroup></select> <input type="submit" value="Pesquisar"><input type="hidden" name="source" value="fixture"></form>
+</body></html>

@@ -1,0 +1,67 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Documentos normalizados</title>
+<style>
+:root { color: #18342c; font-family: sans-serif; }
+body { background: #f4f7ef; }
+main { max-width: 800px; padding: 16px; }
+pre { white-space: pre-wrap; background: #e1e9da; padding: 12px; }
+</style>
+<!-- Sem html/head/body explícitos. Fonte de demonstração, não executada nesta entrega. -->
+<main>
+<h1>Documento abreviado, árvore real</h1>
+<p>A margem padrão de body foi mantida. Os resultados abaixo só existem após execução manual.</p>
+<div id="target"><i>Anterior</i></div>
+<pre id="result">Fonte não executada nesta entrega.</pre>
+<template id="inert"><title>Título inativo</title><script>document.getElementById('result').setAttribute('data-template-executed','yes');</script><style>body { color: red; }</style></template>
+<noscript><b>Texto inativo com scripting habilitado</b></noscript>
+</main>
+<script>
+const result = document.getElementById('result');
+let lines = [];
+function note(label, ok) { lines.push(label + ': ' + (ok ? 'OK' : 'FALHOU')); }
+note('Esqueleto', document.documentElement.tagName === 'HTML' && document.head.tagName === 'HEAD' && document.body.tagName === 'BODY');
+note('Relações estruturais', document.head.parentNode === document.documentElement && document.body.parentNode === document.documentElement);
+note('Metadados iniciais no head', document.querySelector('meta').parentNode === document.head);
+note('Título ativo', document.title === 'Documentos normalizados');
+note('Script de template inativo', result.getAttribute('data-template-executed') === null);
+const mode = document.compatMode;
+const target = document.getElementById('target');
+target.innerHTML = '<b id="fragment-first">Primeiro</b><span>Segundo</span>';
+note('Fragmento sem wrappers', target.childElementCount === 2 && target.firstElementChild.tagName === 'B');
+note('Modo preservado', document.compatMode === mode);
+const textarea = document.createElement('textarea');
+textarea.innerHTML = '&amp;<b>literal</b>';
+note('RCDATA contextual', textarea.textContent === '&<b>literal</b>' && textarea.childElementCount === 0);
+const style = document.createElement('style');
+style.innerHTML = '&amp;<b>literal</b>';
+note('Raw text contextual', style.textContent === '&amp;<b>literal</b>' && style.childElementCount === 0);
+for (const name of ['table', 'select', 'svg']) {
+ const element = document.createElement(name);
+ element.textContent = 'preservado';
+ let refused = false;
+ try { element.innerHTML = '<b>novo</b>'; }
+ catch (error) { refused = true; lines.push('Recusa ' + name + ': ' + error.name); }
+ note('Recusa atômica ' + name, refused && element.textContent === 'preservado');
+}
+const originalTitle = document.querySelector('title');
+const newerTitle = document.createElement('title');
+newerTitle.textContent = 'Primeiro na árvore';
+document.head.insertBefore(newerTitle, originalTitle);
+note('Título em ordem da árvore', document.title === 'Primeiro na árvore');
+document.head.removeChild(newerTitle);
+document.title = '  Título   atualizado  ';
+note('Setter e espaços do título', document.title === 'Título atualizado');
+const head = document.head;
+const body = document.body;
+document.documentElement.removeChild(head);
+note('Head removido não recriado', document.head === null && document.title === '');
+document.title = 'Sem head e sem título ativo';
+note('Setter sem head é no-op', document.head === null && document.title === '');
+document.documentElement.insertBefore(head, body);
+document.documentElement.removeChild(body);
+note('Body ausente não é Document', document.body === null);
+document.documentElement.appendChild(body);
+note('Reinserção preserva identidade', document.head === head && document.body === body);
+result.textContent = lines.join('\n');
+</script>

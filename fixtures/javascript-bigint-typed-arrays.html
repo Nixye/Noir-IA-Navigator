@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Noir: arrays tipados BigInt</title></head>
+<body>
+<h1>Arrays tipados BigInt: fixture não executada</h1>
+<p id="integer">Aguardando inteiros.</p>
+<p id="view">Aguardando DataView.</p>
+<p id="copy">Aguardando cópia.</p>
+<script>
+const integers = new BigInt64Array([9007199254740993n, -2n]);
+document.getElementById('integer').textContent = integers.join(', ');
+
+const buffer = new ArrayBuffer(8);
+const view = new DataView(buffer);
+view.setBigUint64(0, 18446744073709551615n, true);
+const unsigned = view.getBigUint64(0, true);
+const signed = view.getBigInt64(0, true);
+document.getElementById('view').textContent = 'Sem sinal: ' + unsigned.toString() + ' | com sinal: ' + signed.toString();
+
+const values = new BigUint64Array([1n, 2n, 3n, 4n]);
+values.set(values.subarray(0, 3), 1);
+const copy = values.slice(1);
+document.getElementById('copy').textContent = 'Cópia sobreposta: ' + copy.join(', ');
+</script>
+</body>
+</html>

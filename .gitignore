@@ -1,0 +1,7 @@
+/target/
+/dist/
+/resources/ai/
+*.log
+*.tmp
+.DS_Store
+

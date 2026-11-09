@@ -1,0 +1,15 @@
+{
+  "runtime_version": "b11960",
+  "runtime_release": "v0.8.0",
+  "windows_url": "https://github.com/ggml-org/llama.cpp/releases/download/b11960/llama-b11960-bin-win-cpu-x64.zip",
+  "windows_sha256": "73f962f82850d244db47eaacb9d913637027b82399124324298576d58c5f4287",
+  "linux_url": "https://github.com/ggml-org/llama.cpp/releases/download/b11960/llama-b11960-bin-ubuntu-x64.tar.gz",
+  "linux_sha256": "31cc3a6bc638ac6c48dc4b1b74888f1eaadf3d14227c1e5f67daf9a49541d97a",
+  "model": "Qwen2.5-1.5B-Instruct-Q4_K_M",
+  "model_repository": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+  "model_revision": "91cad51170dc346986eccefdc2dd33a9da36ead9",
+  "model_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+  "model_url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/91cad51170dc346986eccefdc2dd33a9da36ead9/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+  "model_sha256": "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e",
+  "model_bytes": 1117320736
+}

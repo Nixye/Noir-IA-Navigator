@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Metadados WAV locais</title></head>
+<body>
+<h1>Duração local, sem reprodução</h1>
+<p>Fixture-fonte não executada. Reprodução indisponível neste recorte.</p>
+<p>WAV determinístico: PCM mono, 8 bits, 8000 Hz, 2000 amostras silenciosas. Duração esperada: 0,25 s.</p>
+<audio id="sample" src="audio-metadata/silence-250ms.wav" preload="metadata"></audio>
+<p id="result">Aguardando leitura de duration pelo script.</p>
+<script>
+var sample = document.getElementById('sample');
+var result = document.getElementById('result');
+result.textContent = 'duration observada nesta abertura: ' + sample.duration + ' s; esperado: 0.25 s. Isto não valida reprodução.';
+</script>
+</body>
+</html>

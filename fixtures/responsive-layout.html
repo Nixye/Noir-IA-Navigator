@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Layout responsivo — Noir</title>
+<style media="print">body { display: none; }</style>
+<style>
+:root { --surface: #142238; --ink: #e3eaf4; --accent: #93c9ff; }
+body { margin: 0; color: var(--ink); background: #0c1525; }
+main { max-width: 1100px; margin: 0 auto; padding: 32px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 0; }
+nav { display: flex; flex-wrap: wrap; gap: 16px; }
+a { color: var(--accent); }
+h1 { font-size: 32px; margin: 0; }
+.intro { max-width: 650px; margin: 28px 0; }
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.card { padding: 24px; border: 1px solid #304461; background: var(--surface); }
+.card h2 { font-size: 22px; margin: 0 0 16px; }
+.card p { margin: 0; }
+.actions { display: flex; gap: 16px; align-items: center; margin: 28px 0; }
+.actions input { flex: 1; }
+button { min-width: 100px; }
+[data-state="ready"] { color: #94e1b7; }
+@media screen and (max-width: 760px) {
+  main { padding: 20px; }
+  header { flex-direction: column; align-items: flex-start; }
+  .cards { grid-template-columns: 1fr; }
+  .actions { flex-direction: column; align-items: stretch; }
+}
+</style>
+</head>
+<body>
+<main>
+<header><h1>Horizonte</h1><nav><a href="#conteudo">Explorar</a><a href="https://www.google.com.br/">Pesquisar</a><a href="https://pt.wikipedia.org/">Aprender</a></nav></header>
+<section class="intro"><p data-state="ready">Layout responsivo no motor próprio.</p><p>Caixas, texto, links e controles compartilham o mesmo cálculo de posição. Reduza a largura para ver a disposição mudar.</p></section>
+<section id="conteudo" class="cards">
+<article class="card"><h2>Distribuir</h2><p>Grid divide o espaço livre em três colunas iguais, com espaçamento uniforme e alturas acompanhando o conteúdo.</p></article>
+<article class="card"><h2>Organizar</h2><p>Flex organiza a navegação e o formulário. Textos longos quebram dentro das caixas.</p></article>
+<article class="card"><h2>Adaptar</h2><p>Uma consulta de largura reorganiza a página sem trocar o documento.</p></article>
+</section>
+<form action="https://www.google.com.br/search" method="get" class="actions"><input name="q" placeholder="O que você quer descobrir?"><button type="submit">Pesquisar</button></form>
+</main>
+</body>
+</html>

@@ -1,0 +1,10 @@
+[package]
+name = "web-html"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[dependencies]
+web-dom.workspace = true
+browser-ipc.workspace = true
+[lints]
+workspace = true

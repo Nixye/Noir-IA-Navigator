@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Sessão JavaScript · Noir</title>
+  <style>
+    body { margin: 0; padding: 40px; background: #0b1621; color: #d9edf2; font-size: 17px; }
+    main { max-width: 680px; }
+    h1 { font-size: 36px; margin-top: 12px; }
+    h2 { font-size: 22px; }
+    p { line-height: 1.6; }
+    .label { color: #7ce9ef; font-size: 12px; }
+    .panel { background: #142737; padding: 24px; margin-bottom: 20px; }
+    input { width: 320px; padding: 10px; margin-bottom: 12px; }
+    button { padding: 10px; margin-bottom: 12px; }
+    #message { color: #edba70; }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="label">NOIR / JAVASCRIPT PRÓPRIO</p>
+    <h1>Uma sessão que mantém seu estado.</h1>
+    <p id="ready">Aguardando o evento inicial.</p>
+    <section class="panel">
+      <h2>Texto e eventos</h2>
+      <p>Escreva um nome e clique em Atualizar. O callback lê o valor atual do campo e modifica o DOM.</p>
+      <input id="person" name="person" type="text" value="Visitante" placeholder="Seu nome">
+      <button id="apply" type="button">Atualizar</button>
+      <p id="message">Olá, Visitante.</p>
+    </section>
+    <section class="panel">
+      <h2>Contagem persistente</h2>
+      <button id="counter" type="button">Contar</button>
+      <p id="count">0</p>
+      <p>Redimensione a janela e clique novamente. A contagem deve continuar na mesma sessão do renderer.</p>
+    </section>
+    <section class="panel">
+      <h2>Timer local</h2>
+      <button id="timer" type="button">Iniciar timer de 1 segundo</button>
+      <p id="timer-state">Timer parado.</p>
+    </section>
+    <p class="label">Este documento verifica um subconjunto implementado. Ele não demonstra compatibilidade geral com frameworks, módulos ou TypeScript sem compilação.</p>
+  </main>
+  <script>
+    const person = document.getElementById('person');
+    const message = document.getElementById('message');
+    let count = 0;
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('ready').textContent = 'DOMContentLoaded executado pelo runtime original.';
+    });
+    document.getElementById('apply').addEventListener('click', () => {
+      message.textContent = 'Olá, ' + person.value + '.';
+    });
+    document.getElementById('counter').addEventListener('click', () => {
+      count++;
+      document.getElementById('count').textContent = String(count);
+    });
+    document.getElementById('timer').addEventListener('click', () => {
+      document.getElementById('timer-state').textContent = 'Aguardando...';
+      setTimeout(() => {
+        document.getElementById('timer-state').textContent = 'Timer concluído.';
+      }, 1000);
+    });
+  </script>
+</body>
+</html>

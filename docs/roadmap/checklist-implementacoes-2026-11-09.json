@@ -1,0 +1,3899 @@
+{
+  "title": "Checklist dos 137 subitens do roadmap Noir",
+  "date": "2026-11-09",
+  "stage": "Consolidado: 137 subitens auditados; nenhum macrogrupo concluído",
+  "source": "docs/roadmap/implementações Planejadas.md",
+  "source_sha256": "B225FA8CFCB727ED667A735C2E22C53DE28F2ED62FCFDF5669FB661FBFF75DB2",
+  "total": 137,
+  "counts_by_group": [
+    8,
+    4,
+    9,
+    6,
+    7,
+    8,
+    9,
+    6,
+    8,
+    7,
+    7,
+    6,
+    8,
+    6,
+    8,
+    11,
+    6,
+    7,
+    6
+  ],
+  "items": [
+    {
+      "id": "1.1",
+      "group": 1,
+      "group_title": "Motor JavaScript próprio",
+      "original_text": "Sintaxe e semântica ECMAScript: expressões, declarações, funções, classes, herança, campos privados, destructuring, templates, spread/rest e iteração.",
+      "source_line": 73,
+      "state": "Parcial",
+      "implementations": [
+        "Parser/AST e execução próprios para expressões, declarações, funções, classes, herança, campos privados, defaults/rest, destructuring, templates, spread e for...of, no subconjunto suportado."
+      ],
+      "gaps": [
+        "Gramática e semântica ECMAScript integrais; contextos super/privados/Annex B e várias posições suspensíveis permanecem restritos."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:73",
+        "crates/web-javascript/src/parser.rs",
+        "crates/web-javascript/src/language.rs",
+        "crates/web-javascript/src/class_runtime.rs",
+        "crates/web-javascript/src/strict_validation.rs",
+        "crates/web-javascript/src/resumable.rs",
+        "docs/releases/2026-11-08-javascript-roadmap-item1.md",
+        "docs/releases/2026-11-08-resumable-delete.md"
+      ],
+      "validation": "Ciclo 16: web-javascript 440/440 e bindings 130/130. Testes próprios do subconjunto; não são Test262 nem prova do bullet inteiro.",
+      "implementation_origin": "Base própria preexistente + incrementos de linguagem/classes/destructuring e funções resumíveis de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "1.2",
+      "group": 1,
+      "group_title": "Motor JavaScript próprio",
+      "original_text": "Escopos, closures, hoisting, TDZ, modo estrito, coerções e tratamento de exceções.",
+      "source_line": 75,
+      "state": "Parcial",
+      "implementations": [
+        "Bindings var/léxicos, closures, hoisting, TDZ, validação antecipada e modo estrito parcial; coerção falível Symbol.toPrimitive/valueOf/toString; exceções ordinárias versus Resource fatal com rollback.",
+        "Ciclo 16: histórico interno limitado de até quatro exceções anteriores e contextos inertes, sem alterar message, thrown ou Error.cause; marca de proveniência permite offset de parse somente quando pertence à fonte correta."
+      ],
+      "gaps": [
+        "Escopos, strict, Arguments Object/aliases, Annex B e coerções exóticas/Host completos; os limites call_depth=16 e oito coerções ativas não provam segurança/conformidade geral.",
+        "Histórico não é stack trace nem causalidade JavaScript completa; Promise rejeitada e finally que substitui conclusão mantêm limites explícitos. Casos corrigidos não provam ausência universal de stack overflow."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:75",
+        "crates/web-javascript/src/language.rs",
+        "crates/web-javascript/src/strict_validation.rs",
+        "crates/web-javascript/src/coercion.rs",
+        "crates/web-javascript/src/dynamic_code.rs",
+        "docs/releases/2026-11-08-operator-coercion.md",
+        "crates/web-javascript/src/exception_diagnostics.rs",
+        "crates/web-javascript/src/lib.rs",
+        "docs/specifications/script-diagnostics.md"
+      ],
+      "validation": "Ciclo 16: web-javascript 440/440 e bindings 130/130. Testes próprios do subconjunto; não são Test262 nem prova do bullet inteiro. O novo diagnóstico inicialmente provocou stack overflow reproduzido; armazenamento compacto opcional em Box corrigiu o caso mantendo o limite de parse 64 e a entrada de profundidade 70. Regressão focada e suíte de 440 passaram; falhas anteriores preservadas.",
+      "implementation_origin": "Base de escopos/exceções + coerções/strict/limites de 08/11 e correções dos ciclos funcionais. Ciclo 16 acrescenta diagnóstico interno e correção estrutural do armazenamento opcional em Box, sem baixar os limites existentes.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md",
+        "target/validation/2026-11-09-exception-diagnostics-crate.log",
+        "target/validation/2026-11-09-exception-diagnostics-stack-repro.log",
+        "target/validation/2026-11-09-exception-diagnostics-stack-fixed.log",
+        "target/validation/2026-11-09-exception-diagnostics-crate-after.log"
+      ],
+      "tests": [
+        "parser::resumable_syntax_tests::classical_for_yield_probe_keeps_resource_errors_fatal",
+        "exception_diagnostics::tests::failing_google_style_reporter_keeps_first_error_without_defining_reporter"
+      ]
+    },
+    {
+      "id": "1.3",
+      "group": 1,
+      "group_title": "Motor JavaScript próprio",
+      "original_text": "Módulos, dependências, ciclos, bindings vivos, importação dinâmica e avaliação assíncrona.",
+      "source_line": 77,
+      "state": "Parcial",
+      "implementations": [
+        "Módulos estáticos com link de grafo, ciclos, execução única, imports imutáveis e bindings vivos; import dinâmico do registro autorizado e import.meta.url."
+      ],
+      "gaps": [
+        "Carregamento dinâmico sob demanda, avaliação assíncrona/top-level await, import maps/attributes e namespace exótico completo."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:77",
+        "crates/web-javascript/src/parser_modules.rs",
+        "crates/web-javascript/src/modules.rs",
+        "crates/browser-core/src/module_assets.rs",
+        "docs/releases/2026-11-08-static-modules.md",
+        "docs/releases/2026-11-08-dynamic-import.md",
+        "docs/releases/2026-11-08-import-meta.md"
+      ],
+      "validation": "Ciclo 16: web-javascript 440/440 e bindings 130/130. Testes próprios do subconjunto; não são Test262 nem prova do bullet inteiro.",
+      "implementation_origin": "Incrementos de 08/11: módulos estáticos, import dinâmico registrado e import.meta.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "1.4",
+      "group": 1,
+      "group_title": "Motor JavaScript próprio",
+      "original_text": "Promises, `async`/`await`, generators e iteradores síncronos/assíncronos.",
+      "source_line": 79,
+      "state": "Parcial",
+      "implementations": [
+        "Promises/thenables/combinadores e fila FIFO; async/await e generators com continuações reais; iteração síncrona/assíncrona, for await...of, async generators e yield* assíncrono limitados."
+      ],
+      "gaps": [
+        "Suspensão em todas as posições, top-level await, cadeias de protótipos completas, scheduler Web e rejection tracking."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:79",
+        "crates/web-javascript/src/promises.rs",
+        "crates/web-javascript/src/resumable.rs",
+        "crates/web-javascript/src/resumable_functions.rs",
+        "crates/web-javascript/src/async_iteration.rs",
+        "crates/web-javascript/src/async_generators.rs",
+        "docs/releases/2026-11-08-async-iteration.md",
+        "docs/releases/2026-11-08-async-generators.md",
+        "docs/releases/2026-11-08-async-delegation.md"
+      ],
+      "validation": "Ciclo 16: web-javascript 440/440 e bindings 130/130. Testes próprios do subconjunto; não são Test262 nem prova do bullet inteiro.",
+      "implementation_origin": "Base de Promises/timers + continuações, async iteration/generators e delegação de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "1.5",
+      "group": 1,
+      "group_title": "Motor JavaScript próprio",
+      "original_text": "Objetos nativos completos: arrays, strings, números, datas, coleções, símbolos, BigInt, buffers, arrays tipados, proxies e reflexão.",
+      "source_line": 81,
+      "state": "Parcial",
+      "implementations": [
+        "Arrays e Array.from, strings/números/Math/Date, Map/Set/Symbol, BigInt até 4096 bits, buffers/DataView/arrays tipados inclusive BigInt64; descritores/protótipos selecionados e 13 operações Reflect em alvos representáveis."
+      ],
+      "gaps": [
+        "Proxy; reflexão, exóticos e metadados completos; Date local/locale, species, buffers redimensionáveis, SharedArrayBuffer e Atomics."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:81",
+        "crates/web-javascript/src/stdlib.rs",
+        "crates/web-javascript/src/array_methods.rs",
+        "crates/web-javascript/src/array_from.rs",
+        "crates/web-javascript/src/bigint.rs",
+        "crates/web-javascript/src/reflect_api.rs",
+        "docs/releases/2026-11-08-reflect.md",
+        "docs/releases/2026-11-08-bigint-typed-arrays.md",
+        "docs/releases/2026-11-08-array-from-dom.md"
+      ],
+      "validation": "Ciclo 16: web-javascript 440/440 e bindings 130/130. Testes próprios do subconjunto; não são Test262 nem prova do bullet inteiro.",
+      "implementation_origin": "Base de objetos nativos + Reflect/BigInt/Math/números/arrays tipados de 08/11; segunda rodada Array.from.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "1.6",
+      "group": 1,
+      "group_title": "Motor JavaScript próprio",
+      "original_text": "JSON, expressões regulares, Unicode e UTF-16 corretos.",
+      "source_line": 83,
+      "state": "Parcial",
+      "implementations": [
+        "JSON parse/stringify, strings internas UTF-16 com lone surrogates, indexação/iteração/conversões selecionadas e RegExp próprio limitado."
+      ],
+      "gaps": [
+        "RegExp Unicode/UTF-16 integral, matching de surrogates isolados e escapes/flags/backreferences/lookbehind completos; fronteira DOM UTF-8 recusa valores irrepresentáveis."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:83",
+        "crates/web-javascript/src/json.rs",
+        "crates/web-javascript/src/strings.rs",
+        "crates/web-javascript/src/regexp.rs",
+        "crates/web-javascript/src/regexp_runtime.rs",
+        "docs/releases/2026-11-08-javascript-roadmap-item1.md"
+      ],
+      "validation": "Ciclo 16: web-javascript 440/440 e bindings 130/130. Testes próprios do subconjunto; não são Test262 nem prova do bullet inteiro.",
+      "implementation_origin": "Base JSON/strings/RegExp + incrementos UTF-16 e correções de semântica/fixtures; não completam ECMA-262.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "1.7",
+      "group": 1,
+      "group_title": "Motor JavaScript próprio",
+      "original_text": "Garbage collector, referências fracas, finalização e integração segura com objetos DOM.",
+      "source_line": 85,
+      "state": "Parcial",
+      "implementations": [
+        "GC mark/sweep não móvel em pontos seguros; roots de closures/classes/Promises/listeners/timers/DOM; WeakRef/WeakMap/WeakSet, ephemeron até ponto fixo e FinalizationRegistry com cleanup posterior."
+      ],
+      "gaps": [
+        "Alvos fracos limitados a Object/Array/Function; Host/Native/Symbol recusados; integração Web completa e garantias de encerramento pendentes, sem estabilidade prolongada comprovada."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:85",
+        "crates/web-javascript/src/gc.rs",
+        "crates/web-javascript/src/weak_refs.rs",
+        "crates/web-javascript/src/weak_collections.rs",
+        "crates/web-javascript/src/finalization_registry.rs",
+        "crates/web-bindings/src/events.rs",
+        "docs/releases/2026-11-08-weakref.md",
+        "docs/releases/2026-11-08-weak-collections.md",
+        "docs/releases/2026-11-08-finalization-registry.md"
+      ],
+      "validation": "Ciclo 16: web-javascript 440/440 e bindings 130/130. Testes próprios do subconjunto; não são Test262 nem prova do bullet inteiro.",
+      "implementation_origin": "Base GC/roots + incrementos WeakRef, coleções fracas e FinalizationRegistry de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "1.8",
+      "group": 1,
+      "group_title": "Motor JavaScript próprio",
+      "original_text": "Internacionalização: números, datas, calendários, fusos, ordenação e segmentação de texto.",
+      "source_line": 87,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Intl/ECMA-402: formatação de números/datas, calendários, fusos, ordenação e segmentação por locale. Date/Number comuns e suporte parcial Unicode não satisfazem este item."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:87",
+        "docs/architecture/capabilities.md",
+        "docs/releases/2026-11-08-javascript-roadmap-item1.md",
+        "crates/web-javascript/src/stdlib.rs"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "2.1",
+      "group": 2,
+      "group_title": "WebAssembly",
+      "original_text": "Validação, instanciação e execução de módulos.",
+      "source_line": 97,
+      "state": "Parcial",
+      "implementations": [
+        "validate/Module/Instance síncronos e execução real via wasmi 2.0 sem JIT, incluindo loops/chamadas/traps, preflight e fuel."
+      ],
+      "gaps": [
+        "Somente módulos numéricos stateless; validade binária não implica elegibilidade de Instance; plataforma Wasm integral pendente."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:97",
+        "crates/web-wasm/src/lib.rs",
+        "crates/web-javascript/src/wasm.rs",
+        "docs/releases/2026-11-08-stateless-webassembly.md"
+      ],
+      "validation": "Ciclo 16: web-wasm 10/10, VM 440/440 e bindings 130/130. Não certifica Wasm integral nem aplicações-alvo.",
+      "implementation_origin": "Primeiro recorte Wasm de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "2.2",
+      "group": 2,
+      "group_title": "WebAssembly",
+      "original_text": "Memórias, tabelas, imports, exports e integração com JavaScript.",
+      "source_line": 99,
+      "state": "Parcial",
+      "implementations": [
+        "Exports numéricos i32/i64/f32/f64 com ponte JavaScript; i64↔BigInt exato, identidade e GC; até 32 parâmetros e um resultado."
+      ],
+      "gaps": [
+        "Memórias, tabelas, imports JavaScript, globals mutáveis, start, segmentos, referências e estado persistente recusados; Store efêmero por chamada."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:99",
+        "crates/web-wasm/src/lib.rs",
+        "crates/web-javascript/src/wasm.rs",
+        "crates/web-bindings/src/wasm_i64_tests.rs",
+        "docs/releases/2026-11-08-webassembly-i64-bigint.md"
+      ],
+      "validation": "Ciclo 16: web-wasm 10/10, VM 440/440 e bindings 130/130. Não certifica Wasm integral nem aplicações-alvo.",
+      "implementation_origin": "Primeiro recorte Wasm + segunda rodada i64/BigInt de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "2.3",
+      "group": 2,
+      "group_title": "WebAssembly",
+      "original_text": "Compilação/carregamento por streaming.",
+      "source_line": 101,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "compileStreaming/instantiateStreaming e carregamento incremental não implementados; BufferSource inteiro e CompilationMode::Eager não são streaming; compile/instantiate Promise também ausentes."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:101",
+        "crates/web-wasm/src/lib.rs",
+        "crates/web-javascript/src/wasm.rs",
+        "docs/releases/2026-11-08-stateless-webassembly.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "2.4",
+      "group": 2,
+      "group_title": "WebAssembly",
+      "original_text": "Extensões estabilizadas exigidas pelas aplicações atendidas.",
+      "source_line": 103,
+      "state": "Parcial",
+      "implementations": [
+        "Backend wasmi com recursos configurados explicitamente e ponte i64/BigInt ampliada."
+      ],
+      "gaps": [
+        "Extensões necessárias às aplicações-alvo ainda não mapeadas/comprovadas; memory64, SIMD, referências, multi-value/multi-memory, tail-call, extended-const, custom-page-size e wide-arithmetic fora da configuração declarada."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:103",
+        "crates/web-wasm/src/lib.rs",
+        "crates/web-wasm/Cargo.toml",
+        "docs/releases/2026-11-08-stateless-webassembly.md",
+        "docs/releases/2026-11-08-webassembly-i64-bigint.md"
+      ],
+      "validation": "Ciclo 16: web-wasm 10/10, VM 440/440 e bindings 130/130. Não certifica Wasm integral nem aplicações-alvo.",
+      "implementation_origin": "Configuração do primeiro recorte Wasm + extensão i64/BigInt da segunda rodada.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "3.1",
+      "group": 3,
+      "group_title": "HTML, documentos e DOM",
+      "original_text": "Parser HTML completo, incluindo recuperação padronizada de documentos malformados.",
+      "source_line": 113,
+      "state": "Parcial",
+      "implementations": [
+        "Parser HTML próprio com recuperação limitada, raw text/RCDATA/entidades e normalização html/head/body; quotas de 1 MiB, 20.000 nós e profundidade 128."
+      ],
+      "gaps": [
+        "Tokenização, construção de árvore e recuperação WHATWG completas; tabelas/select/foreign contexts completos."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:113",
+        "crates/web-html/src/lib.rs",
+        "docs/releases/2026-11-08-normalized-html-documents.md",
+        "docs/specifications/html-dom-subset.md"
+      ],
+      "validation": "Ciclo 16: web-dom 3/3, web-html 9/9, web-css 36/36 e bindings 130/130. Sem WPT/conformidade geral.",
+      "implementation_origin": "Parser próprio preexistente + normalização de documentos de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "3.2",
+      "group": 3,
+      "group_title": "HTML, documentos e DOM",
+      "original_text": "Construção correta da árvore, modos de documento e compatibilidade legada.",
+      "source_line": 115,
+      "state": "Parcial",
+      "implementations": [
+        "Wrappers únicos; head/body/documentElement reais; incorporação limitada de atributos duplicados e DocumentMode/compatMode."
+      ],
+      "gaps": [
+        "Modos de inserção completos, nós Comment/DocumentType públicos e compatibilidade/layout quirks integral."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:115",
+        "crates/web-html/src/lib.rs",
+        "crates/web-dom/src/lib.rs",
+        "docs/specifications/html-dom-subset.md"
+      ],
+      "validation": "Ciclo 16: web-dom 3/3, web-html 9/9, web-css 36/36 e bindings 130/130. Sem WPT/conformidade geral.",
+      "implementation_origin": "Base de DOM/doctype + normalização/getters estruturais de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "3.3",
+      "group": 3,
+      "group_title": "HTML, documentos e DOM",
+      "original_text": "Elementos HTML, atributos, propriedades refletidas e comportamento de cada elemento.",
+      "source_line": 117,
+      "state": "Parcial",
+      "implementations": [
+        "Elementos/atributos e getters/setters selecionados: title, textContent, value, checked/disabled, style/classList; controles input/textarea/select/button; dimensões naturais de imagem e audio.duration limitados."
+      ],
+      "gaps": [
+        "Reflexão, estados e algoritmos de todos os elementos; getter innerHTML e mídia completa ausentes."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:117",
+        "crates/web-bindings/src/lib.rs",
+        "crates/web-bindings/src/media.rs",
+        "crates/web-layout/src/lib.rs",
+        "docs/specifications/html-dom-subset.md",
+        "docs/releases/2026-11-08-natural-image-dimensions.md",
+        "docs/releases/2026-11-08-wav-metadata.md"
+      ],
+      "validation": "Ciclo 16: web-dom 3/3, web-html 9/9, web-css 36/36 e bindings 130/130. Sem WPT/conformidade geral.",
+      "implementation_origin": "Base de DOM/controles + getters/título, dimensões naturais e áudio limitado de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "3.4",
+      "group": 3,
+      "group_title": "HTML, documentos e DOM",
+      "original_text": "Namespaces, SVG integrado ao documento e MathML.",
+      "source_line": 119,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Namespaces, algoritmos foreign-content, SVG integrado ao DOM/estilos/interação e MathML. SVG estático decodificado como imagem é uma capacidade relacionada, não implementação deste subitem."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:119",
+        "crates/web-dom/src/lib.rs",
+        "crates/web-html/src/lib.rs",
+        "docs/specifications/html-dom-subset.md",
+        "docs/specifications/images-subset.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "3.5",
+      "group": 3,
+      "group_title": "HTML, documentos e DOM",
+      "original_text": "Criação, movimentação, clonagem, adoção e remoção de nós.",
+      "source_line": 121,
+      "state": "Parcial",
+      "implementations": [
+        "createElement/createTextNode, appendChild/insertBefore/removeChild/replaceChild/remove/cloneNode com preflight e limites em um documento."
+      ],
+      "gaps": [
+        "importNode/adoptNode, adoção entre documentos, DocumentFragment público e algoritmos/protótipos DOM completos."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:121",
+        "crates/web-bindings/src/lib.rs",
+        "docs/specifications/html-dom-subset.md"
+      ],
+      "validation": "Ciclo 16: web-dom 3/3, web-html 9/9, web-css 36/36 e bindings 130/130. Sem WPT/conformidade geral.",
+      "implementation_origin": "Base de mutações/clone do DOM + integração ao documento normalizado de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "3.6",
+      "group": 3,
+      "group_title": "HTML, documentos e DOM",
+      "original_text": "Fragmentos, templates, coleções vivas, consultas e seletores.",
+      "source_line": 123,
+      "state": "Parcial",
+      "implementations": [
+        "Fragmentos contextuais no setter innerHTML; templates/noscript inativos; querySelector/querySelectorAll/matches/closest com parser CSS compartilhado, ordem e deduplicação; lista snapshot com length/índices consumível por Array.from."
+      ],
+      "gaps": [
+        "template.content/DocumentFragment, coleções vivas/iteradores DOM, :scope/:has/namespaces/pseudoelementos/Shadow DOM, contextos table/select/foreign e getter innerHTML."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:123",
+        "crates/web-html/src/lib.rs",
+        "crates/web-css/src/selector_query.rs",
+        "crates/web-bindings/src/selector_query_tests.rs",
+        "crates/web-bindings/src/array_from_tests.rs",
+        "docs/releases/2026-11-08-shared-dom-selectors.md",
+        "docs/releases/2026-11-08-array-from-dom.md"
+      ],
+      "validation": "Ciclo 16: web-dom 3/3, web-html 9/9, web-css 36/36 e bindings 130/130. Sem WPT/conformidade geral.",
+      "implementation_origin": "Base de consultas/mutações + fragmentos contextuais; segunda rodada seletores DOM/CSS e Array.from de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "3.7",
+      "group": 3,
+      "group_title": "HTML, documentos e DOM",
+      "original_text": "Web Components: custom elements, Shadow DOM, slots e ciclos de vida.",
+      "source_line": 125,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "customElements, ShadowRoot/attachShadow, slots/distribuição e callbacks de ciclo de vida. Templates inativos não equivalem a Web Components."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:125",
+        "docs/specifications/html-dom-subset.md",
+        "docs/architecture/capabilities.md",
+        "crates/web-dom/src/lib.rs",
+        "crates/web-bindings/src/lib.rs"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "3.8",
+      "group": 3,
+      "group_title": "HTML, documentos e DOM",
+      "original_text": "Observadores de mutação, tamanho e interseção.",
+      "source_line": 127,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "MutationObserver, ResizeObserver e IntersectionObserver, incluindo checkpoints e entrega. Contador de mutações/cache e medidas síncronas não oferecem essas APIs."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:127",
+        "docs/specifications/html-dom-subset.md",
+        "crates/web-bindings/src/geometry.rs",
+        "crates/web-renderer/src/geometry.rs"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "3.9",
+      "group": 3,
+      "group_title": "HTML, documentos e DOM",
+      "original_text": "Interfaces e conversões Web IDL, incluindo protótipos e descritores corretos.",
+      "source_line": 129,
+      "state": "Parcial",
+      "implementations": [
+        "Ponte Host com verificação de receiver, conversões/dicionários observáveis de Event/CustomEvent, valores DOM/erros limitados e construtores host opt-in."
+      ],
+      "gaps": [
+        "Web IDL, DOMException, protótipos/descritores/instanceof/subclasses e interfaces completos."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:129",
+        "crates/web-bindings/src/events.rs",
+        "crates/web-bindings/src/lib.rs",
+        "crates/web-javascript/src/host_constructors.rs",
+        "docs/specifications/events-subset.md"
+      ],
+      "validation": "Ciclo 16: web-dom 3/3, web-html 9/9, web-css 36/36 e bindings 130/130. Sem WPT/conformidade geral.",
+      "implementation_origin": "Ponte Host preexistente + conversões/construtores Event/CustomEvent de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "4.1",
+      "group": 4,
+      "group_title": "Event loop e ciclo de vida",
+      "original_text": "Tarefas, microtasks e checkpoints com ordenação correta.",
+      "source_line": 139,
+      "state": "Parcial",
+      "implementations": [
+        "Jobs Promise/queueMicrotask FIFO e checkpoints após scripts, módulos e callbacks; timers em lotes limitados; dispatchEvent síncrono sem checkpoint adicional entre listeners."
+      ],
+      "gaps": [
+        "Fontes/prioridades de tarefas Web, checkpoints de todas as fases, coordenação/rejection tracking e event loop integral."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:139",
+        "crates/web-javascript/src/promises.rs",
+        "crates/web-javascript/src/finalization_registry.rs",
+        "crates/web-bindings/src/lib.rs",
+        "crates/web-bindings/src/lifecycle.rs",
+        "crates/web-bindings/src/events.rs",
+        "docs/releases/2026-11-08-document-lifecycle.md"
+      ],
+      "validation": "Ciclo 16: bindings 130/130, renderer 15/15, IPC 23/23, process 18/18 e subprocess 12/12. Não prova vsync ou todos os eventos Web.",
+      "implementation_origin": "Base de jobs/timers + checkpoints/ciclo de vida de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "4.2",
+      "group": 4,
+      "group_title": "Event loop e ciclo de vida",
+      "original_text": "Timers, frames de animação e sincronização com renderização.",
+      "source_line": 141,
+      "state": "Parcial",
+      "implementations": [
+        "Timers limitados e requestAnimationFrame/cancelAnimationFrame; snapshot de até 32 callbacks, timestamp real do host, validação monotônica IPC v8 e callbacks antes da display list; oferta à aba exibida elegível."
+      ],
+      "gaps": [
+        "Vsync, apresentação GPU, frequência e sincronização Web completas; timers vencidos podem adiar frames."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:141",
+        "crates/web-bindings/src/animation.rs",
+        "crates/web-bindings/src/animation_tests.rs",
+        "crates/web-renderer/src/lib.rs",
+        "crates/browser-ipc/src/lib.rs",
+        "apps/browser-desktop/src/shell.rs",
+        "docs/releases/2026-11-08-animation-frames.md",
+        "docs/adr/0021-host-animation-frame-pulses.md"
+      ],
+      "validation": "Ciclo 16: bindings 130/130, renderer 15/15, IPC 23/23, process 18/18 e subprocess 12/12. Não prova vsync ou todos os eventos Web.",
+      "implementation_origin": "Timers preexistentes + segunda rodada rAF/cancelAnimationFrame e IPC v8 de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "4.3",
+      "group": 4,
+      "group_title": "Event loop e ciclo de vida",
+      "original_text": "Scripts clássicos, módulos, `async`, `defer` e scripts inseridos dinamicamente.",
+      "source_line": 143,
+      "state": "Parcial",
+      "implementations": [
+        "Scripts clássicos e módulos do lote autorizado; fila DOM única de externos defer e módulos sem async; inline ignora async/defer."
+      ],
+      "gaps": [
+        "Externos async/módulos async recusados; parser incremental/bloqueante real, execução de scripts inseridos dinamicamente e top-level await ausentes."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:143",
+        "crates/web-bindings/src/lifecycle.rs",
+        "docs/releases/2026-11-08-document-lifecycle.md"
+      ],
+      "validation": "Ciclo 16: bindings 130/130, renderer 15/15, IPC 23/23, process 18/18 e subprocess 12/12. Não prova vsync ou todos os eventos Web.",
+      "implementation_origin": "Scripts preexistentes + módulos e fila defer/ciclo de vida de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "4.4",
+      "group": 4,
+      "group_title": "Event loop e ciclo de vida",
+      "original_text": "Estados de carregamento, eventos de sucesso/falha e cancelamento.",
+      "source_line": 145,
+      "state": "Parcial",
+      "implementations": [
+        "readyState loading/interactive/complete, readystatechange, DOMContentLoaded/load e inicialização única; erros comuns reportados e Resource com rollback/desativação."
+      ],
+      "gaps": [
+        "Estados/eventos de sucesso e falha de todas as categorias de recurso, cancelamento padronizado e lifecycle Web completo; complete/load não provam carga bem-sucedida."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:145",
+        "crates/web-bindings/src/lifecycle.rs",
+        "crates/web-bindings/src/lib.rs",
+        "docs/releases/2026-11-08-document-lifecycle.md"
+      ],
+      "validation": "Ciclo 16: bindings 130/130, renderer 15/15, IPC 23/23, process 18/18 e subprocess 12/12. Não prova vsync ou todos os eventos Web.",
+      "implementation_origin": "Incremento de readyState/readystatechange/ciclo inicial de 08/11 sobre sessão preexistente.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "4.5",
+      "group": 4,
+      "group_title": "Event loop e ciclo de vida",
+      "original_text": "Visibilidade, congelamento, retomada e descarte de páginas.",
+      "source_line": 147,
+      "state": "Parcial",
+      "implementations": [
+        "Shell considera aba ativa e janela oculta ao ofertar rAF e evita replay de pulsos de abas inativas."
+      ],
+      "gaps": [
+        "Page Visibility API, freeze/resume/discard e estados/eventos padronizados; ocultação observada pelo host não equivale à API Web."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:147",
+        "apps/browser-desktop/src/shell.rs",
+        "docs/releases/2026-11-08-animation-frames.md",
+        "docs/releases/2026-11-08-document-lifecycle.md"
+      ],
+      "validation": "Ciclo 16: bindings 130/130, renderer 15/15, IPC 23/23, process 18/18 e subprocess 12/12. Não prova vsync ou todos os eventos Web.",
+      "implementation_origin": "Estado nativo de abas/janela preexistente + elegibilidade dos pulsos rAF de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "4.6",
+      "group": 4,
+      "group_title": "Event loop e ciclo de vida",
+      "original_text": "Coordenação entre documentos, workers e processos.",
+      "source_line": 149,
+      "state": "Parcial",
+      "implementations": [
+        "DocumentSession retida no renderer, supervisor/IPC transacionais e coordenação host/processo para dispatch, timers e frames."
+      ],
+      "gaps": [
+        "Coordenação Web de event loops múltiplos, documentos aninhados e workers; workers ausentes."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:149",
+        "crates/browser-process/src/session.rs",
+        "crates/web-renderer/src/lib.rs",
+        "crates/web-bindings/src/lifecycle.rs",
+        "docs/releases/2026-11-08-document-lifecycle.md",
+        "docs/releases/2026-11-08-animation-frames.md"
+      ],
+      "validation": "Ciclo 16: bindings 130/130, renderer 15/15, IPC 23/23, process 18/18 e subprocess 12/12. Não prova vsync ou todos os eventos Web.",
+      "implementation_origin": "Sessões/processos preexistentes + integração de lifecycle/frames de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "5.1",
+      "group": 5,
+      "group_title": "Eventos, entrada e edição",
+      "original_text": "Captura, alvo, propagação, cancelamento e ações padrão.",
+      "source_line": 155,
+      "state": "Parcial",
+      "implementations": [
+        "Captura/alvo/bubble, caminho congelado, stopPropagation/stopImmediatePropagation, once/passive/remoção, cancelamento, nós destacados e dispatch síncrono; ações nativas limitadas de cliques/formulários na shell."
+      ],
+      "gaps": [
+        "Ações padrão Web completas e integradas ao cancelamento; dispatchEvent programático não dispara navegação, envio ou foco."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:155",
+        "crates/web-bindings/src/events.rs",
+        "crates/web-bindings/src/lib.rs",
+        "docs/specifications/events-subset.md",
+        "docs/releases/2026-11-08-programmatic-events.md"
+      ],
+      "validation": "Ciclo 16: bindings 130/130, renderer 15/15 e desktop unitário 35/35. Entrada/edição Web completa e avaliação interativa ampla não verificadas.",
+      "implementation_origin": "Base de listeners/fases + Event/CustomEvent/dispatchEvent de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "5.2",
+      "group": 5,
+      "group_title": "Eventos, entrada e edição",
+      "original_text": "Event, CustomEvent, EventTarget e eventos especializados.",
+      "source_line": 157,
+      "state": "Parcial",
+      "implementations": [
+        "Construtores Event/CustomEvent host, detail com identidade/GC, dispatchEvent em Window/Document/Node e add/removeEventListener."
+      ],
+      "gaps": [
+        "EventTarget independente, eventos especializados, handleEvent e protótipos/instanceof/subclasses/descritores Web IDL completos."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:157",
+        "crates/web-bindings/src/events.rs",
+        "crates/web-bindings/src/lib.rs",
+        "crates/web-javascript/src/host_constructors.rs",
+        "docs/specifications/events-subset.md"
+      ],
+      "validation": "Ciclo 16: bindings 130/130, renderer 15/15 e desktop unitário 35/35. Entrada/edição Web completa e avaliação interativa ampla não verificadas.",
+      "implementation_origin": "Base de listeners Host + construtores e dispatchEvent de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "5.3",
+      "group": 5,
+      "group_title": "Eventos, entrada e edição",
+      "original_text": "Teclado, mouse, ponteiro, toque, wheel, gestos e composição de texto.",
+      "source_line": 159,
+      "state": "Parcial",
+      "implementations": [
+        "Controles egui encaminham Input/Change/Click à sessão; Enter em inputs aciona envio limitado."
+      ],
+      "gaps": [
+        "KeyboardEvent/MouseEvent/PointerEvent/TouchEvent/WheelEvent completos, dados de dispositivo, gestos e composição/IME Web. Tabela de nomes reconhecidos não comprova integração desses dispositivos."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:159",
+        "apps/browser-desktop/src/shell.rs",
+        "crates/web-bindings/src/lib.rs",
+        "crates/web-renderer/src/lib.rs",
+        "docs/specifications/events-subset.md"
+      ],
+      "validation": "Ciclo 16: bindings 130/130, renderer 15/15 e desktop unitário 35/35. Entrada/edição Web completa e avaliação interativa ampla não verificadas.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "5.4",
+      "group": 5,
+      "group_title": "Eventos, entrada e edição",
+      "original_text": "Foco, seleção, ranges, edição e `contenteditable`.",
+      "source_line": 161,
+      "state": "Parcial",
+      "implementations": [
+        "Foco, seleção e edição nos TextEdit nativos; atualização value/input/change e foco visível dos links pela Response egui."
+      ],
+      "gaps": [
+        "Foco DOM/tabindex/ordem Tab completa, Selection/Range, contenteditable e eventos DOM de foco completos."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:161",
+        "apps/browser-desktop/src/shell.rs",
+        "docs/releases/2026-11-08-web-link-keyboard-focus.md",
+        "docs/specifications/events-subset.md"
+      ],
+      "validation": "Ciclo 16: bindings 130/130, renderer 15/15 e desktop unitário 35/35. Entrada/edição Web completa e avaliação interativa ampla não verificadas.",
+      "implementation_origin": "Controles/edição nativos preexistentes + contorno de foco nos links de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "5.5",
+      "group": 5,
+      "group_title": "Eventos, entrada e edição",
+      "original_text": "Clipboard, drag-and-drop e integração com métodos de entrada do sistema.",
+      "source_line": 163,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Clipboard API/eventos, drag-and-drop/DataTransfer e integração de métodos de entrada/composição ao conteúdo Web não demonstrados. TextEdit host não basta; copiar/colar ou IME não foram verificados nesta auditoria."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:163",
+        "docs/specifications/events-subset.md",
+        "apps/browser-desktop/src/shell.rs"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "5.6",
+      "group": 5,
+      "group_title": "Eventos, entrada e edição",
+      "original_text": "Caminhos compostos de eventos em Shadow DOM.",
+      "source_line": 165,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "composedPath, retargeting e caminhos compostos em Shadow DOM; composed truthy é recusado na construção. Propagação comum não satisfaz este item."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:165",
+        "crates/web-bindings/src/events.rs",
+        "docs/specifications/events-subset.md",
+        "docs/specifications/html-dom-subset.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "5.7",
+      "group": 5,
+      "group_title": "Eventos, entrada e edição",
+      "original_text": "AbortController/AbortSignal integrados às operações canceláveis.",
+      "source_line": 167,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "AbortController/AbortSignal e integração com listeners/operações canceláveis. signal não nullish é recusado; clearTimeout/cancelAnimationFrame e transações do host não implementam essas APIs."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:167",
+        "crates/web-bindings/src/lib.rs",
+        "docs/specifications/events-subset.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "6.1",
+      "group": 6,
+      "group_title": "CSS e cascata",
+      "original_text": "Parsing, seletores, especificidade, herança e cascata completos.",
+      "source_line": 173,
+      "state": "Parcial",
+      "implementations": [
+        "Parser/cascata próprios, herança selecionada e seletores compostos/listas/combinadores/atributos; especificidade lexicográfica, todos os IDs do composto, inline e !important."
+      ],
+      "gaps": [
+        "Parsing, seletores, cascata/herança, origens e recuperação CSS completos; :has, estados dinâmicos e pseudoelementos pendentes."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:173",
+        "crates/web-css/src/lib.rs",
+        "crates/web-css/src/selector_query.rs",
+        "docs/releases/2026-11-08-css-specificity.md",
+        "docs/specifications/layout-subset.md"
+      ],
+      "validation": "Ciclo 16: web-css 36/36 e bindings 130/130. Não é suíte CSS/WPT completa nem certificação visual.",
+      "implementation_origin": "Parser/matcher/cascata próprios preexistentes + correção de especificidade e compartilhamento dos seletores de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "6.2",
+      "group": 6,
+      "group_title": "CSS e cascata",
+      "original_text": "Camadas, escopos, variáveis, funções, unidades e valores computados.",
+      "source_line": 175,
+      "state": "Parcial",
+      "implementations": [
+        "Custom properties herdadas em mapa, var() com fallback/limites, unidades px/em/rem/%/vw/vh/vmin/vmax/físicas, valores Style computados e repeat() de Grid limitados."
+      ],
+      "gaps": [
+        "@layer/@scope, variáveis e CSS-wide keywords completos, calc/funções/unidades e valores computados gerais."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:175",
+        "crates/web-css/src/lib.rs",
+        "docs/specifications/layout-subset.md",
+        "docs/releases/2026-11-08-css-specificity.md"
+      ],
+      "validation": "Ciclo 16: web-css 36/36 e bindings 130/130. Não é suíte CSS/WPT completa nem certificação visual.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "6.3",
+      "group": 6,
+      "group_title": "CSS e cascata",
+      "original_text": "Pseudoclasses, pseudo-elementos e conteúdo gerado.",
+      "source_line": 177,
+      "state": "Parcial",
+      "implementations": [
+        ":not/:is/:where, nth/first/last/only/of-type, :empty/:link/:checked/:disabled/:enabled/:lang no subconjunto."
+      ],
+      "gaps": [
+        "hover/focus e demais pseudoclasses, pseudoelementos e conteúdo gerado."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:177",
+        "crates/web-css/src/lib.rs",
+        "crates/web-css/src/selector_query.rs",
+        "docs/specifications/layout-subset.md",
+        "docs/architecture/capabilities.md"
+      ],
+      "validation": "Ciclo 16: web-css 36/36 e bindings 130/130. Não é suíte CSS/WPT completa nem certificação visual.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "6.4",
+      "group": 6,
+      "group_title": "CSS e cascata",
+      "original_text": "Media queries, feature queries e container queries.",
+      "source_line": 179,
+      "state": "Parcial",
+      "implementations": [
+        "@media screen/all com dimensões/orientation/and/listas e reavaliação de viewport; @supports declarações/selector/not/and/or conservadores."
+      ],
+      "gaps": [
+        "Container queries, media features/ranges/preferências e sintaxe completa."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:179",
+        "crates/web-css/src/lib.rs",
+        "docs/specifications/layout-subset.md",
+        "docs/releases/2026-11-07-engine-v09.md",
+        "fixtures/css-conditional-rules.html"
+      ],
+      "validation": "Ciclo 16: web-css 36/36 e bindings 130/130. Não é suíte CSS/WPT completa nem certificação visual.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "6.5",
+      "group": 6,
+      "group_title": "CSS e cascata",
+      "original_text": "Fontes, cores, fundos, bordas, sombras, máscaras e filtros.",
+      "source_line": 181,
+      "state": "Parcial",
+      "implementations": [
+        "Tamanho/peso/line-height de fonte, cores simples, fundo sólido/alpha, borda uniforme e shorthands limitados."
+      ],
+      "gaps": [
+        "@font-face/famílias reais, imagens de fundo completas, bordas avançadas/radius, sombras, máscaras e filtros."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:181",
+        "crates/web-css/src/lib.rs",
+        "crates/web-layout/src/lib.rs",
+        "crates/web-graphics/src/lib.rs",
+        "docs/specifications/layout-subset.md"
+      ],
+      "validation": "Ciclo 16: web-css 36/36 e bindings 130/130. Não é suíte CSS/WPT completa nem certificação visual.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "6.6",
+      "group": 6,
+      "group_title": "CSS e cascata",
+      "original_text": "Transforms, transições, animações e view transitions.",
+      "source_line": 183,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Transforms CSS, transitions, @keyframes/animations e view transitions. Animação da shell, rAF e zoom do host são capacidades distintas."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:183",
+        "crates/web-css/src/lib.rs",
+        "docs/specifications/layout-subset.md",
+        "docs/releases/2026-11-08-css-specificity.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "6.7",
+      "group": 6,
+      "group_title": "CSS e cascata",
+      "original_text": "Propriedades lógicas, escrita vertical e direção de texto.",
+      "source_line": 185,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Propriedades lógicas, writing-mode vertical e direção/bidi corretos. Tratar text-align start/end como alinhamento existente não implementa direção."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:185",
+        "crates/web-css/src/lib.rs",
+        "docs/specifications/layout-subset.md",
+        "docs/releases/2026-11-08-text-whitespace.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "6.8",
+      "group": 6,
+      "group_title": "CSS e cascata",
+      "original_text": "CSSOM, folhas dinâmicas e consulta de estilos computados.",
+      "source_line": 187,
+      "state": "Parcial",
+      "implementations": [
+        "Propriedades inline limitadas em style; mutações de atributos/style/nós style repercutem no recálculo, com folhas autorizadas relidas."
+      ],
+      "gaps": [
+        "CSSOM/CSSStyleSheet/CSSRule/insertRule/deleteRule/adoptedStyleSheets, folhas dinâmicas completas e getComputedStyle."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:187",
+        "crates/web-bindings/src/lib.rs",
+        "crates/web-css/src/lib.rs",
+        "crates/web-renderer/src/lib.rs",
+        "docs/architecture/capabilities.md",
+        "docs/releases/2026-11-08-css-specificity.md"
+      ],
+      "validation": "Ciclo 16: web-css 36/36 e bindings 130/130. Não é suíte CSS/WPT completa nem certificação visual.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "7.1",
+      "group": 7,
+      "group_title": "Layout e geometria",
+      "original_text": "Fluxos block/inline e formação de linhas.",
+      "source_line": 197,
+      "state": "Parcial",
+      "implementations": [
+        "Fluxos block/inline/inline-block, formação de linhas, alinhamento e whitespace normal/nowrap/pre/pre-wrap/pre-line."
+      ],
+      "gaps": [
+        "Inline formatting e layout de linhas completos, fragmentação, quebra Unicode/graphemes e métricas entre runs complexos."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:197",
+        "crates/web-layout/src/lib.rs",
+        "docs/releases/2026-11-08-text-whitespace.md",
+        "docs/specifications/layout-subset.md"
+      ],
+      "validation": "Ciclo 16: web-layout 26/26, renderer 15/15 e desktop unitário 35/35. Layout Web/visual/DPI completos não validados.",
+      "implementation_origin": "Fluxos preexistentes + normalização de whitespace/pre-line de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "7.2",
+      "group": 7,
+      "group_title": "Layout e geometria",
+      "original_text": "Dimensionamento intrínseco, margens, padding, bordas e restrições de tamanho.",
+      "source_line": 199,
+      "state": "Parcial",
+      "implementations": [
+        "width/height/min-width/min-height/max-width, padding/margens/borda/box-sizing e dimensões naturais de imagens; alturas percentuais com referência definida."
+      ],
+      "gaps": [
+        "min-content/max-content completos, agregação intrínseca entre irmãos, todas as restrições/margin collapsing e replaced elements gerais."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:199",
+        "crates/web-layout/src/lib.rs",
+        "crates/web-css/src/lib.rs",
+        "docs/releases/2026-11-08-natural-image-dimensions.md",
+        "docs/releases/2026-11-08-flex-cross-axis.md",
+        "docs/specifications/layout-subset.md"
+      ],
+      "validation": "Ciclo 16: web-layout 26/26, renderer 15/15 e desktop unitário 35/35. Layout Web/visual/DPI completos não validados.",
+      "implementation_origin": "Box model preexistente + dimensões naturais de imagem e recorte Flex de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "7.3",
+      "group": 7,
+      "group_title": "Layout e geometria",
+      "original_text": "Flexbox, Grid, tabelas, floats, colunas e fragmentação.",
+      "source_line": 201,
+      "state": "Parcial",
+      "implementations": [
+        "Flex row/column/reverse/wrap/grow/shrink/basis/gap e alinhamento transversal row-nowrap com altura definida; Grid de colunas explícitas/repeat e tabelas HTML simples."
+      ],
+      "gaps": [
+        "Flex completo, baseline/order/align-self/wrap-reverse; Grid placement/spans/minmax/subgrid; rowspan/colspan, floats, multicolunas e fragmentação."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:201",
+        "crates/web-layout/src/lib.rs",
+        "docs/releases/2026-11-08-flex-cross-axis.md",
+        "docs/specifications/layout-subset.md"
+      ],
+      "validation": "Ciclo 16: web-layout 26/26, renderer 15/15 e desktop unitário 35/35. Layout Web/visual/DPI completos não validados.",
+      "implementation_origin": "Flex/Grid/tabelas preexistentes + alinhamento transversal row-nowrap de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "7.4",
+      "group": 7,
+      "group_title": "Layout e geometria",
+      "original_text": "Posicionamento static/relative/absolute/fixed/sticky.",
+      "source_line": 203,
+      "state": "Parcial",
+      "implementations": [
+        "static, relative e absolute com offsets e containing block limitado."
+      ],
+      "gaps": [
+        "fixed/sticky, static-position completo, esticamento vertical top/bottom e casos inline/fragmentados."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:203",
+        "crates/web-css/src/lib.rs",
+        "crates/web-layout/src/lib.rs",
+        "docs/specifications/layout-subset.md",
+        "fixtures/positioned-layout.html"
+      ],
+      "validation": "Ciclo 16: web-layout 26/26, renderer 15/15 e desktop unitário 35/35. Layout Web/visual/DPI completos não validados.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "7.5",
+      "group": 7,
+      "group_title": "Layout e geometria",
+      "original_text": "Containing blocks, stacking contexts, `z-index` e ordem de pintura.",
+      "source_line": 205,
+      "state": "Parcial",
+      "implementations": [
+        "Absolute usa padding box do ancestral posicionado/viewport; pintura/translações seguem árvore e display list."
+      ],
+      "gaps": [
+        "Stacking contexts, z-index e ordem normativa completa de pintura; containing block de inline relativo usa aproximação envolvente."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:205",
+        "crates/web-layout/src/lib.rs",
+        "crates/web-css/src/lib.rs",
+        "docs/specifications/layout-subset.md"
+      ],
+      "validation": "Ciclo 16: web-layout 26/26, renderer 15/15 e desktop unitário 35/35. Layout Web/visual/DPI completos não validados.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "7.6",
+      "group": 7,
+      "group_title": "Layout e geometria",
+      "original_text": "Overflow, scroll containers, scroll snap e ancoragem de rolagem.",
+      "source_line": 207,
+      "state": "Parcial",
+      "implementations": [
+        "Overflow visível contribui para extensão rolável; hidden/clip retangular aninhado em layout/IPC/links/controles/CPU/GPU; rolagem da página e offset no histórico nativo."
+      ],
+      "gaps": [
+        "Scroll containers CSS, overflow-x/y/auto/scroll, scroll snap e ancoragem."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:207",
+        "crates/web-layout/src/lib.rs",
+        "crates/web-css/src/lib.rs",
+        "apps/browser-desktop/src/shell.rs",
+        "docs/specifications/layout-subset.md",
+        "docs/releases/2026-11-08-history-scroll.md"
+      ],
+      "validation": "Ciclo 16: web-layout 26/26, renderer 15/15 e desktop unitário 35/35. Layout Web/visual/DPI completos não validados.",
+      "implementation_origin": "Overflow/clips/rolagem preexistentes + scroll no histórico de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "7.7",
+      "group": 7,
+      "group_title": "Layout e geometria",
+      "original_text": "Geometria correta para zoom, DPI e transforms.",
+      "source_line": 209,
+      "state": "Parcial",
+      "implementations": [
+        "Coordenadas CSS separadas de zoom/pixels_per_point; viewport dividido pelo zoom e cena pintada com escala física, clipping e retângulos de interação."
+      ],
+      "gaps": [
+        "CSS transforms e geometria normativa completa; correção visual em todos os DPI/zooms não comprovada pelo baseline."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:209",
+        "apps/browser-desktop/src/shell.rs",
+        "apps/browser-desktop/src/page_gpu.rs",
+        "crates/web-graphics/src/lib.rs"
+      ],
+      "validation": "Ciclo 16: web-layout 26/26, renderer 15/15 e desktop unitário 35/35. Layout Web/visual/DPI completos não validados.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "7.8",
+      "group": 7,
+      "group_title": "Layout e geometria",
+      "original_text": "`getBoundingClientRect`, medidas client/offset/scroll e hit testing.",
+      "source_line": 211,
+      "state": "Parcial",
+      "implementations": [
+        "clientWidth/clientHeight/clientLeft/clientTop calculados pelo layout e innerWidth/innerHeight reais; hit areas de links/controles recortadas."
+      ],
+      "gaps": [
+        "getBoundingClientRect, medidas offset/scroll, hit testing DOM completo/elementFromPoint; serviço atual limitado a 64 resoluções síncronas por sessão."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:211",
+        "crates/web-bindings/src/geometry.rs",
+        "crates/web-renderer/src/geometry.rs",
+        "crates/web-layout/src/lib.rs",
+        "docs/adr/0013-events-callable-bridge-and-layout-measurements.md",
+        "docs/architecture/capabilities.md"
+      ],
+      "validation": "Ciclo 16: web-layout 26/26, renderer 15/15 e desktop unitário 35/35. Layout Web/visual/DPI completos não validados.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "7.9",
+      "group": 7,
+      "group_title": "Layout e geometria",
+      "original_text": "Invalidação e recálculo incremental quando DOM ou estilos mudarem.",
+      "source_line": 213,
+      "state": "Parcial",
+      "implementations": [
+        "Cache de geometria invalidado por mutação/viewport; RenderSession retém DOM/VM e recalcula estilo/layout após eventos/timers/frames."
+      ],
+      "gaps": [
+        "Invalidação e recálculo incremental por regiões/subárvores/propriedades; o caminho atual recomputa documento/estilos/layout."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:213",
+        "crates/web-bindings/src/geometry.rs",
+        "crates/web-renderer/src/geometry.rs",
+        "crates/web-renderer/src/lib.rs"
+      ],
+      "validation": "Ciclo 16: web-layout 26/26, renderer 15/15 e desktop unitário 35/35. Layout Web/visual/DPI completos não validados.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "8.1",
+      "group": 8,
+      "group_title": "Texto e fontes",
+      "original_text": "Carregamento e seleção de fontes locais e externas.",
+      "source_line": 219,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Seleção/carregamento de fontes da página: fontes locais do SO, font-family/font matching, @font-face/FontFace e fontes externas autorizadas. Ubuntu Light fixa embutida é base relacionada, não a implementação solicitada."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:219",
+        "crates/web-layout/src/lib.rs",
+        "crates/web-paint/src/lib.rs",
+        "crates/web-graphics/src/lib.rs",
+        "docs/specifications/layout-subset.md",
+        "docs/releases/2026-11-08-text-whitespace.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "8.2",
+      "group": 8,
+      "group_title": "Texto e fontes",
+      "original_text": "Shaping, kerning, ligaturas, fontes variáveis e fallback.",
+      "source_line": 221,
+      "state": "Parcial",
+      "implementations": [
+        "Métricas por glifo e horizontal_kern de fontdue, negrito sintético, atlas e rasterização."
+      ],
+      "gaps": [
+        "Shaping, ligaturas, variações OpenType e fallback/font matching; kerning não equivale a shaping completo."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:221",
+        "crates/web-layout/src/lib.rs",
+        "crates/web-graphics/src/lib.rs",
+        "crates/web-paint/src/lib.rs",
+        "docs/releases/2026-11-08-clipped-glyph-raster.md",
+        "docs/releases/2026-11-08-text-whitespace.md"
+      ],
+      "validation": "Ciclo 16: layout 26/26, graphics 9/9 e paint 7/7. Shaping/bidi/fallback e consistência tipográfica geral não certificados.",
+      "implementation_origin": "Fontdue/kerning preexistentes + separação métricas/materialização e culling de glifos de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "8.3",
+      "group": 8,
+      "group_title": "Texto e fontes",
+      "original_text": "Unicode, escrita bidirecional e diferentes sistemas de escrita.",
+      "source_line": 223,
+      "state": "Parcial",
+      "implementations": [
+        "Texto UTF-8 no DOM, Unicode preservado em runs e espaços U+00A0/U+202F/U+2003 não colapsados; strings UTF-16 na VM."
+      ],
+      "gaps": [
+        "Bidi, shaping por sistemas de escrita, graphemes e quebra Unicode; processamento escalar e fonte fixa não garantem composição nem disponibilidade de glifos."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:223",
+        "crates/web-layout/src/lib.rs",
+        "crates/web-javascript/src/strings.rs",
+        "docs/releases/2026-11-08-text-whitespace.md"
+      ],
+      "validation": "Ciclo 16: layout 26/26, graphics 9/9 e paint 7/7. Shaping/bidi/fallback e consistência tipográfica geral não certificados.",
+      "implementation_origin": "Unicode preexistente + preservação explícita dos espaços no recorte de whitespace de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "8.4",
+      "group": 8,
+      "group_title": "Texto e fontes",
+      "original_text": "Quebra de linha, hifenização, justificação e decoração.",
+      "source_line": 225,
+      "state": "Parcial",
+      "implementations": [
+        "Wrap/nowrap, preservação/colapso de whitespace, normalização CRLF/CR por nó, altura de linhas vazias e alinhamento básico."
+      ],
+      "gaps": [
+        "Hifenização, justificação, decoração tipográfica completa, tab stops e Unicode line breaking; justify-content Flex não é justificação de texto."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:225",
+        "crates/web-layout/src/lib.rs",
+        "crates/web-css/src/lib.rs",
+        "docs/releases/2026-11-08-text-whitespace.md",
+        "docs/specifications/layout-subset.md"
+      ],
+      "validation": "Ciclo 16: layout 26/26, graphics 9/9 e paint 7/7. Shaping/bidi/fallback e consistência tipográfica geral não certificados.",
+      "implementation_origin": "Texto/linhas preexistentes + whitespace normalizado compartilhado de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "8.5",
+      "group": 8,
+      "group_title": "Texto e fontes",
+      "original_text": "Emojis, símbolos e fontes coloridas.",
+      "source_line": 227,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Emojis, sequências ZWJ/variantes, fontes coloridas e fallback de símbolos não demonstrados. O caminho escalar monocromático não comprova cobertura, sem implicar que todo símbolo falha."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:227",
+        "crates/web-layout/src/lib.rs",
+        "crates/web-graphics/src/lib.rs",
+        "crates/web-paint/src/lib.rs",
+        "docs/releases/2026-11-08-clipped-glyph-raster.md",
+        "docs/releases/2026-11-08-text-whitespace.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "8.6",
+      "group": 8,
+      "group_title": "Texto e fontes",
+      "original_text": "Consistência entre medidas, seleção, hit testing e pintura.",
+      "source_line": 229,
+      "state": "Parcial",
+      "implementations": [
+        "Fluxo/largura preferida compartilham normalização por nó; pintores usam métricas/kerning; links/controles seguem deslocamento/clipping do layout e espaço colapsado não ganha área clicável."
+      ],
+      "gaps": [
+        "Selection/Range e hit testing textual/graphemes, equivalência entre nós fragmentados, fallback e consistência visual ponta a ponta; fonte dos controles egui segue caminho separado."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:229",
+        "crates/web-layout/src/lib.rs",
+        "crates/web-graphics/src/lib.rs",
+        "crates/web-paint/src/lib.rs",
+        "docs/releases/2026-11-08-text-whitespace.md",
+        "docs/releases/2026-11-08-clipped-glyph-raster.md"
+      ],
+      "validation": "Ciclo 16: layout 26/26, graphics 9/9 e paint 7/7. Shaping/bidi/fallback e consistência tipográfica geral não certificados.",
+      "implementation_origin": "Layout/medidas/pintores preexistentes + whitespace compartilhado e glifos recortados de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "9.1",
+      "group": 9,
+      "group_title": "Rede e carregamento de recursos",
+      "original_text": "URLs, resolução relativa, codificações e identificação de conteúdo.",
+      "source_line": 235,
+      "state": "Parcial",
+      "implementations": [
+        "url::Url e resolução relativa, decoding encoding_rs e BOM; parser limitado de MIME/charset com comparação exata de tipos textuais."
+      ],
+      "gaps": [
+        "Sniffing, recuperação MIME/HTML-meta/@charset e conformidade completa."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:235",
+        "crates/browser-core/src/lib.rs",
+        "crates/browser-core/src/network.rs",
+        "crates/browser-core/src/http_metadata.rs",
+        "docs/releases/2026-11-08-http-content-type.md"
+      ],
+      "validation": "Ciclo 16: browser-core 34/34. Testes locais não certificam todos os protocolos, APIs e sites reais.",
+      "implementation_origin": "URLs/encoding/broker preexistentes + parser Content-Type/MIME/charset de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "9.2",
+      "group": 9,
+      "group_title": "Rede e carregamento de recursos",
+      "original_text": "DNS, conexões, TLS, certificados e protocolos HTTP compatíveis.",
+      "source_line": 237,
+      "state": "Parcial",
+      "implementations": [
+        "DNS do sistema com prazo, validação e pinning de IP público; reqwest/rustls e HTTP(S) nas portas 80/443 com deadlines."
+      ],
+      "gaps": [
+        "Cobertura de protocolos, gestão avançada de certificados e compatibilidade geral de transporte não demonstradas."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:237",
+        "crates/browser-core/src/network.rs",
+        "crates/browser-core/Cargo.toml",
+        "docs/security/threat-model.md"
+      ],
+      "validation": "Ciclo 16: browser-core 34/34. Testes locais não certificam todos os protocolos, APIs e sites reais.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "9.3",
+      "group": 9,
+      "group_title": "Rede e carregamento de recursos",
+      "original_text": "Redirects, autenticação, cookies e credenciais.",
+      "source_line": 239,
+      "state": "Parcial",
+      "implementations": [
+        "Até cinco redirects revalidados, sem downgrade HTTPS; URLs com credenciais recusadas."
+      ],
+      "gaps": [
+        "Autenticação, cookies e credenciais Web não implementados; recusar credenciais não equivale a suportá-las."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:239",
+        "crates/browser-core/src/network.rs",
+        "crates/web-bindings/src/lib.rs",
+        "docs/releases/2026-11-08-http-content-type.md"
+      ],
+      "validation": "Ciclo 16: browser-core 34/34. Testes locais não certificam todos os protocolos, APIs e sites reais.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "9.4",
+      "group": 9,
+      "group_title": "Rede e carregamento de recursos",
+      "original_text": "Cache, revalidação, compressão e reutilização de conexões.",
+      "source_line": 241,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Cache e revalidação explicitamente ausentes; compressão e pool/reuso de conexões no escopo solicitado não verificados. Client criado por destino/requisição não comprova essas capacidades."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:241",
+        "crates/browser-core/src/network.rs",
+        "crates/browser-core/Cargo.toml",
+        "docs/releases/2026-11-08-http-content-type.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "9.5",
+      "group": 9,
+      "group_title": "Rede e carregamento de recursos",
+      "original_text": "Fetch, XMLHttpRequest, requests, responses, headers e streams.",
+      "source_line": 243,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Fetch, XMLHttpRequest, objetos Request/Response/Headers e streams expostos à página. Fetch privado em Rust no broker não é a API Fetch Web; bindings verificam ausência de fetch em window."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:243",
+        "crates/web-bindings/src/lib.rs",
+        "crates/browser-core/src/network.rs",
+        "docs/releases/2026-11-08-http-content-type.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "9.6",
+      "group": 9,
+      "group_title": "Rede e carregamento de recursos",
+      "original_text": "Recursos dinâmicos, prioridades, carregamento progressivo e cancelamento.",
+      "source_line": 245,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Recursos dinâmicos, scheduler de prioridades, carga/apresentação progressiva e cancelamento de recursos não verificados. Loader estático, deadlines e descarte de resposta obsoleta são bases relacionadas, não essas capacidades."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:245",
+        "crates/browser-core/src/network.rs",
+        "apps/browser-desktop/src/shell.rs",
+        "docs/releases/2026-11-08-http-content-type.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "9.7",
+      "group": 9,
+      "group_title": "Rede e carregamento de recursos",
+      "original_text": "WebSocket, eventos enviados pelo servidor e transportes adicionais conforme o escopo.",
+      "source_line": 247,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "WebSocket/EventSource e demais transportes exigidos pelas aplicações-alvo não verificados na API de página; definir e comprovar o subconjunto escolhido."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:247",
+        "crates/web-bindings/src/lib.rs",
+        "crates/browser-core/src/network.rs",
+        "docs/architecture/capabilities.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "9.8",
+      "group": 9,
+      "group_title": "Rede e carregamento de recursos",
+      "original_text": "Políticas de origem, CORS, conteúdo misto e integridade de recursos.",
+      "source_line": 249,
+      "state": "Parcial",
+      "implementations": [
+        "Módulos de mesma origem; CSS/imagens/scripts clássicos públicos de CDNs autorizados, DNS pinado e bloqueio de conteúdo misto/downgrade."
+      ],
+      "gaps": [
+        "SOP/CORS/CSP/nosniff completos e integridade de recursos não comprovados; a política atual não exige mesma origem para todo subrecurso."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:249",
+        "crates/browser-core/src/network.rs",
+        "crates/browser-core/src/module_assets.rs",
+        "docs/adr/0008-authorized-subresources.md",
+        "docs/releases/2026-11-08-http-content-type.md"
+      ],
+      "validation": "Ciclo 16: browser-core 34/34. Testes locais não certificam todos os protocolos, APIs e sites reais.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "10.1",
+      "group": 10,
+      "group_title": "Navegação e contextos de páginas",
+      "original_text": "Location, History API, fragmentos e navegação entre documentos.",
+      "source_line": 259,
+      "state": "Parcial",
+      "implementations": [
+        "Location real somente leitura e seus componentes; navegação nativa entre documentos e voltar/avançar."
+      ],
+      "gaps": [
+        "assign/replace/reload/escrita de Location, History API JavaScript e navegação de fragmentos."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:259",
+        "crates/web-bindings/src/lib.rs",
+        "crates/browser-core/src/lib.rs",
+        "apps/browser-desktop/src/shell.rs",
+        "docs/releases/2026-11-08-history-scroll.md"
+      ],
+      "validation": "Ciclo 16: desktop unitário 35/35, process 18/18 e subprocess 12/12. Resultados não ampliam o contrato de navegação/Histórico Web.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "10.2",
+      "group": 10,
+      "group_title": "Navegação e contextos de páginas",
+      "original_text": "Histórico de sessão e restauração de estado.",
+      "source_line": 261,
+      "state": "Parcial",
+      "implementations": [
+        "Histórico nativo com URL e scroll CSS 2D por entrada, até 200 por aba; commit válido e restauração única com clamp."
+      ],
+      "gaps": [
+        "BFCache, DOM/heap/formulários e persistência do histórico/offsets após reinício."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:261",
+        "apps/browser-desktop/src/shell.rs",
+        "docs/releases/2026-11-08-history-scroll.md"
+      ],
+      "validation": "Ciclo 16: desktop unitário 35/35, process 18/18 e subprocess 12/12. Resultados não ampliam o contrato de navegação/Histórico Web.",
+      "implementation_origin": "Histórico nativo preexistente + offsets CSS 2D e restauração de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "10.3",
+      "group": 10,
+      "group_title": "Navegação e contextos de páginas",
+      "original_text": "Iframes, popups, contextos aninhados e comunicação entre documentos.",
+      "source_line": 263,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Iframes, popups, contextos Web aninhados e comunicação entre documentos. Abas nativas independentes e sessão de documento único não atendem ao escopo."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:263",
+        "docs/releases/2026-11-08-history-scroll.md",
+        "crates/web-bindings/src/lib.rs",
+        "crates/browser-process/src/session.rs"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "10.4",
+      "group": 10,
+      "group_title": "Navegação e contextos de páginas",
+      "original_text": "`postMessage`, MessageChannel e structured clone.",
+      "source_line": 265,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "postMessage, MessageChannel e structured clone Web não verificados nos globals/bindings; JSON interno do IPC não é structured clone."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:265",
+        "crates/web-bindings/src/lib.rs",
+        "crates/browser-ipc/src/lib.rs",
+        "docs/architecture/capabilities.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "10.5",
+      "group": 10,
+      "group_title": "Navegação e contextos de páginas",
+      "original_text": "Formulários GET/POST, multipart, upload e validação.",
+      "source_line": 267,
+      "state": "Parcial",
+      "implementations": [
+        "GET com encoding Unicode, successful controls, submit padrão/overrides e controles select/checkbox sob limites."
+      ],
+      "gaps": [
+        "POST explicitamente recusado; multipart, upload e validação HTML completa pendentes."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:267",
+        "apps/browser-desktop/src/shell.rs",
+        "docs/validation/2026-11-03-controls-v051.md",
+        "docs/architecture/capabilities.md"
+      ],
+      "validation": "Ciclo 16: desktop unitário 35/35, process 18/18 e subprocess 12/12. Resultados não ampliam o contrato de navegação/Histórico Web.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "10.6",
+      "group": 10,
+      "group_title": "Navegação e contextos de páginas",
+      "original_text": "Downloads, redirecionamentos e protocolos externos autorizados.",
+      "source_line": 269,
+      "state": "Parcial",
+      "implementations": [
+        "Redirects HTTP limitados e revalidados pelo broker."
+      ],
+      "gaps": [
+        "Downloads/gestor de arquivos recebidos e despacho de protocolos externos autorizados não verificados; esquemas não admitidos são recusados."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:269",
+        "crates/browser-core/src/network.rs",
+        "crates/browser-core/src/lib.rs",
+        "docs/releases/2026-11-08-http-content-type.md",
+        "docs/releases/2026-11-08-history-scroll.md"
+      ],
+      "validation": "Ciclo 16: desktop unitário 35/35, process 18/18 e subprocess 12/12. Resultados não ampliam o contrato de navegação/Histórico Web.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "10.7",
+      "group": 10,
+      "group_title": "Navegação e contextos de páginas",
+      "original_text": "Navegação transacional: respostas antigas nunca substituem a navegação atual.",
+      "source_line": 271,
+      "state": "Implementado",
+      "implementations": [
+        "No pipeline existente, pending/queued e identidade de documento/sessão/geração rejeitam respostas obsoletas antes do commit; storage só confirma checkpoint válido."
+      ],
+      "gaps": [
+        "Nenhuma lacuna de implementação identificada no contrato delimitado. Essa classificação não certifica todas as condições concorrentes nem compatibilidade geral; a validação funcional continua separada."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:271",
+        "apps/browser-desktop/src/shell.rs",
+        "crates/browser-process/src/session.rs"
+      ],
+      "validation": "Ciclo 16: desktop unitário 35/35, process 18/18 e subprocess 12/12. Resultados não ampliam o contrato de navegação/Histórico Web.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": [
+        "shell::tests::queued_navigation_discards_obsolete_result",
+        "shell::tests::history_commits_only_successful_navigation",
+        "shell::tests::only_exact_committed_operations_can_preserve_queued_checkpoints"
+      ]
+    },
+    {
+      "id": "11.1",
+      "group": 11,
+      "group_title": "Persistência, workers e aplicações offline",
+      "original_text": "Cookies, localStorage e sessionStorage.",
+      "source_line": 277,
+      "state": "Parcial",
+      "implementations": [
+        "sessionStorage real, ordenado, em memória e separado por aba/origem HTTP(S), com seed/snapshot validados."
+      ],
+      "gaps": [
+        "Cookies, localStorage, eventos storage e interfaces Storage/Web IDL completas."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:277",
+        "crates/web-bindings/src/storage.rs",
+        "crates/browser-process/src/session_storage.rs",
+        "docs/specifications/session-storage-subset.md",
+        "docs/releases/2026-11-08-session-storage.md"
+      ],
+      "validation": "Ciclo 16: bindings 130/130, renderer 15/15, process 18/18 e IPC 23/23. Cobertura de sessionStorage não certifica as demais APIs de persistência.",
+      "implementation_origin": "Incremento sessionStorage de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "11.2",
+      "group": 11,
+      "group_title": "Persistência, workers e aplicações offline",
+      "original_text": "IndexedDB, Cache Storage e quotas.",
+      "source_line": 279,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "IndexedDB e Cache Storage não implementados. As quotas existentes de sessionStorage (128 pares/64 KiB por origem; 16 origens/aba) não implementam as APIs nomeadas."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:279",
+        "docs/releases/2026-11-08-session-storage.md",
+        "crates/browser-process/src/session_storage.rs",
+        "crates/browser-ipc/src/lib.rs"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "11.3",
+      "group": 11,
+      "group_title": "Persistência, workers e aplicações offline",
+      "original_text": "Particionamento por origem e políticas de descarte.",
+      "source_line": 281,
+      "state": "Parcial",
+      "implementations": [
+        "Buckets da origem final HTTP(S) separados por aba; fechamento/reinício descartam dados; sem bucket opaco/null e sem eviction silenciosa ao esgotar quotas."
+      ],
+      "gaps": [
+        "Particionamento e políticas de descarte amplos para os demais armazenamentos e contextos."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:281",
+        "crates/browser-process/src/session_storage.rs",
+        "docs/releases/2026-11-08-session-storage.md"
+      ],
+      "validation": "Ciclo 16: bindings 130/130, renderer 15/15, process 18/18 e IPC 23/23. Cobertura de sessionStorage não certifica as demais APIs de persistência.",
+      "implementation_origin": "Particionamento/quotas do incremento sessionStorage de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "11.4",
+      "group": 11,
+      "group_title": "Persistência, workers e aplicações offline",
+      "original_text": "Dedicated Workers, Shared Workers e Service Workers.",
+      "source_line": 283,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Dedicated Workers, Shared Workers e Service Workers Web. Processos de renderer/IA são infraestrutura interna, não essas APIs."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:283",
+        "docs/releases/2026-11-08-session-storage.md",
+        "docs/architecture/capabilities.md",
+        "crates/browser-process/src/session.rs"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "11.5",
+      "group": 11,
+      "group_title": "Persistência, workers e aplicações offline",
+      "original_text": "Atualização, ativação e encerramento correto desses workers.",
+      "source_line": 285,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Atualização, ativação e encerramento de Web Workers. Drop de uma sessão interna de renderer não implementa o ciclo dessas APIs; testes específicos não verificados."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:285",
+        "docs/releases/2026-11-08-session-storage.md",
+        "crates/browser-process/src/session.rs"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "11.6",
+      "group": 11,
+      "group_title": "Persistência, workers e aplicações offline",
+      "original_text": "Interceptação de requisições e funcionamento offline.",
+      "source_line": 287,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Interceptação de requisições e aplicações Web offline; Cache Storage e Service Workers ausentes. Abrir arquivo local autorizado não satisfaz este escopo."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:287",
+        "docs/releases/2026-11-08-session-storage.md",
+        "crates/browser-core/src/lib.rs",
+        "crates/browser-core/src/network.rs"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "11.7",
+      "group": 11,
+      "group_title": "Persistência, workers e aplicações offline",
+      "original_text": "Worklets e APIs de execução especializadas quando necessárias.",
+      "source_line": 289,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Worklets e APIs especializadas não verificados; necessidade e escopo das aplicações-alvo precisam ser definidos antes de alegar cobertura."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:289",
+        "crates/web-bindings/src/lib.rs",
+        "docs/architecture/capabilities.md",
+        "docs/releases/2026-11-08-session-storage.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "12.1",
+      "group": 12,
+      "group_title": "Imagens e gráficos Web",
+      "original_text": "Formatos de imagem utilizados pelos sites, incluindo animação.",
+      "source_line": 295,
+      "state": "Parcial",
+      "implementations": [
+        "PNG/JPEG, primeiro frame GIF/WebP, Data URLs e SVG estático limitado; dimensões naturais separadas da textura reduzida."
+      ],
+      "gaps": [
+        "Animação, AVIF e cobertura geral de formatos usados pelos sites."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:295",
+        "crates/browser-core/src/image_decoder.rs",
+        "docs/specifications/images-subset.md",
+        "docs/releases/2026-11-08-natural-image-dimensions.md"
+      ],
+      "validation": "Ciclo 16: browser-core 34/34, graphics 9/9, paint 7/7 e layout 26/26. Não valida APIs gráficas Web nem recuperação de contexto.",
+      "implementation_origin": "Decodificadores preexistentes + dimensões naturais separadas da textura de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "12.2",
+      "group": 12,
+      "group_title": "Imagens e gráficos Web",
+      "original_text": "SVG integrado, estilos, texto, filtros, máscaras e referências.",
+      "source_line": 297,
+      "state": "Parcial",
+      "implementations": [
+        "SVG rasterizado como imagem, com formas/caminhos/grupos/gradientes/clipping e estilos inline/referências internas de pintura limitados."
+      ],
+      "gaps": [
+        "SVG DOM integrado, texto/fontes, filtros, máscaras, use/hrefs e estilos completos, atualmente recusados."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:297",
+        "crates/browser-core/src/image_decoder.rs",
+        "docs/specifications/images-subset.md",
+        "docs/releases/2026-11-08-natural-image-dimensions.md"
+      ],
+      "validation": "Ciclo 16: browser-core 34/34, graphics 9/9, paint 7/7 e layout 26/26. Não valida APIs gráficas Web nem recuperação de contexto.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "12.3",
+      "group": 12,
+      "group_title": "Imagens e gráficos Web",
+      "original_text": "Imagens responsivas, seleção por resolução e carregamento progressivo.",
+      "source_line": 299,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "srcset/sizes/picture, seleção por resolução/densidade e carga progressiva. Dimensão intrínseca/proporção da imagem não implementa seleção responsiva."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:299",
+        "docs/releases/2026-11-08-natural-image-dimensions.md",
+        "docs/specifications/images-subset.md",
+        "crates/browser-core/src/network.rs"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "12.4",
+      "group": 12,
+      "group_title": "Imagens e gráficos Web",
+      "original_text": "Canvas 2D, OffscreenCanvas e ImageBitmap.",
+      "source_line": 301,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Canvas 2D, OffscreenCanvas e ImageBitmap expostos à página. Rasterização interna em CPU/GPU não implementa essas APIs."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:301",
+        "docs/releases/2026-11-08-natural-image-dimensions.md",
+        "crates/web-bindings/src/lib.rs",
+        "crates/web-paint/src/lib.rs"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "12.5",
+      "group": 12,
+      "group_title": "Imagens e gráficos Web",
+      "original_text": "WebGL e WebGPU para aplicações que dependem dessas APIs.",
+      "source_line": 303,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "APIs WebGL/WebGPU para conteúdo Web; wgpu com shader constante interno da shell não oferece essas APIs aos sites."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:303",
+        "docs/releases/2026-11-08-natural-image-dimensions.md",
+        "apps/browser-desktop/src/page_gpu.rs",
+        "docs/adr/0011-owned-web-graphics-driver.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "12.6",
+      "group": 12,
+      "group_title": "Imagens e gráficos Web",
+      "original_text": "Gestão de memória gráfica e recuperação após perda de contexto.",
+      "source_line": 305,
+      "state": "Parcial",
+      "implementations": [
+        "Limites internos de textura, vértices e atlas e caches GPU limitados."
+      ],
+      "gaps": [
+        "Contextos Web e recuperação de context/device loss não implementados; não equivale a gestão completa de gráficos Web."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:305",
+        "crates/web-graphics/src/lib.rs",
+        "apps/browser-desktop/src/page_gpu.rs",
+        "docs/releases/2026-11-08-clipped-glyph-raster.md"
+      ],
+      "validation": "Ciclo 16: browser-core 34/34, graphics 9/9, paint 7/7 e layout 26/26. Não valida APIs gráficas Web nem recuperação de contexto.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "13.1",
+      "group": 13,
+      "group_title": "Áudio, vídeo e streaming",
+      "original_text": "Elementos de mídia com estados, métodos e eventos corretos.",
+      "source_line": 315,
+      "state": "Parcial",
+      "implementations": [
+        "audio.duration somente leitura, real/NaN, com seed original único e invalidação controlada por src/preload."
+      ],
+      "gaps": [
+        "play/pause, estados/eventos/canplay e HTMLMediaElement completo; vídeo e reprodução não oferecidos."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:315",
+        "crates/web-bindings/src/media.rs",
+        "docs/releases/2026-11-08-wav-metadata.md"
+      ],
+      "validation": "Ciclo 16: browser-core 34/34 e bindings 130/130 incluem o subconjunto de metadados. Não houve prova de reprodução, vídeo ou codecs gerais.",
+      "implementation_origin": "Incremento WAV/audio.duration de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "13.2",
+      "group": 13,
+      "group_title": "Áudio, vídeo e streaming",
+      "original_text": "Contêineres, demultiplexação e codecs.",
+      "source_line": 317,
+      "state": "Parcial",
+      "implementations": [
+        "Leitura de metadados RIFF/WAVE PCM little-endian tag 1, chunks fmt/data e coerência aritmética."
+      ],
+      "gaps": [
+        "Decodificação/reprodução de áudio e demultiplexação/codecs gerais de mídia; interpretar metadados WAV não é um pipeline de reprodução."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:317",
+        "crates/browser-core/src/media_metadata.rs",
+        "docs/specifications/audio-metadata-subset.md",
+        "docs/releases/2026-11-08-wav-metadata.md"
+      ],
+      "validation": "Ciclo 16: browser-core 34/34 e bindings 130/130 incluem o subconjunto de metadados. Não houve prova de reprodução, vídeo ou codecs gerais.",
+      "implementation_origin": "Parser de metadados WAV PCM do incremento de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "13.3",
+      "group": 13,
+      "group_title": "Áudio, vídeo e streaming",
+      "original_text": "Sincronização de áudio/vídeo, buffering, busca temporal e reprodução adaptativa.",
+      "source_line": 319,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Sincronização, relógio, buffering, seek, reprodução adaptativa e streaming; duração calculada não satisfaz esses mecanismos."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:319",
+        "docs/releases/2026-11-08-wav-metadata.md",
+        "crates/browser-core/src/media_metadata.rs",
+        "crates/web-bindings/src/media.rs"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "13.4",
+      "group": 13,
+      "group_title": "Áudio, vídeo e streaming",
+      "original_text": "Media Source Extensions, Web Audio e WebCodecs.",
+      "source_line": 321,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Media Source Extensions, Web Audio e WebCodecs; nenhum backend correspondente confirmado nos bindings."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:321",
+        "docs/releases/2026-11-08-wav-metadata.md",
+        "crates/web-bindings/src/lib.rs"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "13.5",
+      "group": 13,
+      "group_title": "Áudio, vídeo e streaming",
+      "original_text": "Legendas, trilhas, fullscreen, picture-in-picture e Media Session.",
+      "source_line": 323,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Legendas, trilhas, fullscreen de mídia, picture-in-picture e Media Session não verificados. Maximizar janela nativa não é fullscreen de conteúdo Web."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:323",
+        "crates/web-bindings/src/media.rs",
+        "docs/specifications/audio-metadata-subset.md",
+        "docs/releases/2026-11-08-wav-metadata.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "13.6",
+      "group": 13,
+      "group_title": "Áudio, vídeo e streaming",
+      "original_text": "Captura de câmera, microfone e tela.",
+      "source_line": 325,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Captura de câmera, microfone e tela; pipeline atual recebe somente metadados locais, sem PCM, handles ou dispositivos."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:325",
+        "docs/releases/2026-11-08-wav-metadata.md",
+        "docs/adr/0018-brokered-local-audio-metadata.md",
+        "crates/browser-core/src/media_metadata.rs"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "13.7",
+      "group": 13,
+      "group_title": "Áudio, vídeo e streaming",
+      "original_text": "Decodificação por hardware quando disponível.",
+      "source_line": 327,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Decodificação de mídia por hardware; GPU de pintura não equivale a decoder de vídeo/áudio."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:327",
+        "docs/releases/2026-11-08-wav-metadata.md",
+        "apps/browser-desktop/src/page_gpu.rs",
+        "docs/adr/0011-owned-web-graphics-driver.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "13.8",
+      "group": 13,
+      "group_title": "Áudio, vídeo e streaming",
+      "original_text": "Encrypted Media Extensions e integração com sistemas de descriptografia para serviços que os exigem.",
+      "source_line": 329,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "EME/CDM, DRM e fluxo de conteúdo cifrado não verificados; digest SHA não oferece descriptografia de mídia/DRM."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:329",
+        "docs/releases/2026-11-08-wav-metadata.md",
+        "docs/specifications/audio-metadata-subset.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "14.1",
+      "group": 14,
+      "group_title": "Comunicação, identidade e dispositivos",
+      "original_text": "WebRTC e comunicação de áudio, vídeo e dados em tempo real.",
+      "source_line": 339,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "WebRTC e áudio/vídeo/dados em tempo real expostos à página; HTTP interno e inferência não implementam essa API."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:339",
+        "docs/releases/2026-11-08-bounded-crypto-digest.md",
+        "crates/web-bindings/src/lib.rs",
+        "docs/architecture/capabilities.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "14.2",
+      "group": 14,
+      "group_title": "Comunicação, identidade e dispositivos",
+      "original_text": "Web Crypto e geração segura de aleatoriedade.",
+      "source_line": 341,
+      "state": "Parcial",
+      "implementations": [
+        "crypto.subtle.digest SHA-256/384/512, BufferSource copiado e Promise intrínseca, em HTTPS top-level confiável e sob quotas."
+      ],
+      "gaps": [
+        "RNG/getRandomValues/randomUUID, chaves, encriptação, assinaturas e algoritmo completo de secure contexts."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:341",
+        "crates/web-javascript/src/crypto.rs",
+        "crates/web-bindings/src/crypto_context_tests.rs",
+        "docs/releases/2026-11-08-bounded-crypto-digest.md",
+        "docs/adr/0019-bounded-crypto-https-context.md"
+      ],
+      "validation": "Ciclo 16: VM 440/440 e bindings 130/130 incluem digest/contextos. Não valida Web Crypto inteiro, RNG ou dispositivos.",
+      "implementation_origin": "Incremento crypto.subtle.digest limitado de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "14.3",
+      "group": 14,
+      "group_title": "Comunicação, identidade e dispositivos",
+      "original_text": "Autenticação, credenciais, WebAuthn e passkeys.",
+      "source_line": 343,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Autenticação Web, Credential Management, WebAuthn e passkeys; keyring de chaves do provedor de IA não implementa essas APIs da página."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:343",
+        "docs/releases/2026-11-08-bounded-crypto-digest.md",
+        "docs/releases/2026-11-08-http-content-type.md",
+        "crates/ai-runtime/src/lib.rs"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "14.4",
+      "group": 14,
+      "group_title": "Comunicação, identidade e dispositivos",
+      "original_text": "Permissões, notificações e geolocalização.",
+      "source_line": 345,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Permissions, Notifications e Geolocation expostas à página não verificadas; permissões internas das ferramentas de IA são um mecanismo distinto."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:345",
+        "crates/web-bindings/src/lib.rs",
+        "crates/ai-context/src/lib.rs",
+        "docs/architecture/capabilities.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "14.5",
+      "group": 14,
+      "group_title": "Comunicação, identidade e dispositivos",
+      "original_text": "APIs de dispositivos utilizadas pelas páginas atendidas: gamepads, MIDI, USB, Bluetooth, serial e outras.",
+      "source_line": 347,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Gamepads, MIDI, USB, Bluetooth, serial e demais dispositivos Web; necessidade por site/hardware e cobertura ainda não demonstradas."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:347",
+        "docs/releases/2026-11-08-bounded-crypto-digest.md",
+        "docs/architecture/capabilities.md",
+        "crates/web-bindings/src/lib.rs"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "14.6",
+      "group": 14,
+      "group_title": "Comunicação, identidade e dispositivos",
+      "original_text": "Integração com o sistema operacional e indicação correta de capacidades indisponíveis.",
+      "source_line": 349,
+      "state": "Parcial",
+      "implementations": [
+        "Plataforma/paralelismo reais, plugins/mimeTypes vazios e cookieEnabled/javaEnabled=false; sendBeacon retorna false sem enviar; shell Windows/keyring e recusa remota onde não há sandbox suportada."
+      ],
+      "gaps": [
+        "Integração e feature detection Web IDL completos e suporte a dispositivos indisponíveis; recusas previsíveis não representam implementação das capacidades recusadas."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:349",
+        "crates/web-bindings/src/lib.rs",
+        "crates/security-sandbox/src/lib.rs",
+        "docs/releases/2026-11-08-bounded-crypto-digest.md",
+        "docs/architecture/capabilities.md"
+      ],
+      "validation": "Ciclo 16: VM 440/440 e bindings 130/130 incluem digest/contextos. Não valida Web Crypto inteiro, RNG ou dispositivos.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "15.1",
+      "group": 15,
+      "group_title": "Segurança e isolamento",
+      "original_text": "Separação entre interface, broker, renderers, GPU e decodificadores.",
+      "source_line": 359,
+      "state": "Parcial",
+      "implementations": [
+        "Crates direcionais, renderer em subprocesso e broker privilegiado fornecendo bytes; shell com GPU."
+      ],
+      "gaps": [
+        "GPU na aplicação e decodificadores no broker, sem todos os processos e isolamentos separados."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:359",
+        "crates/browser-process/src/session.rs",
+        "crates/browser-core/src/image_decoder.rs",
+        "apps/browser-desktop/src/page_gpu.rs",
+        "docs/architecture/overview.md",
+        "docs/security/threat-model.md"
+      ],
+      "validation": "Ciclo 16: IPC 23/23, process 18/18, security-sandbox 4/4 e os quatro testes de integração AppContainer executados, sem filtros. Não é auditoria universal de segurança.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "15.2",
+      "group": 15,
+      "group_title": "Segurança e isolamento",
+      "original_text": "Sandbox efetiva e isolamento entre origens/contextos.",
+      "source_line": 361,
+      "state": "Parcial",
+      "implementations": [
+        "AppContainer Windows sem capabilities, allowlist de handles, Job de 512 MiB/processo único/kill-on-close e seis provas fail-closed; buckets por origem/sessão."
+      ],
+      "gaps": [
+        "Sandbox Linux, isolamento de todas as classes/contextos e decodificadores/broker, e revisão independente."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:361",
+        "crates/security-sandbox/src/lib.rs",
+        "crates/security-sandbox/src/windows.rs",
+        "crates/browser-process/src/session_storage.rs",
+        "docs/adr/0004-windows-sandbox-and-http-broker.md",
+        "docs/adr/0010-framed-sandbox-proof-and-host-launches.md",
+        "docs/adr/0017-bounded-session-storage.md"
+      ],
+      "validation": "Ciclo 16: IPC 23/23, process 18/18, security-sandbox 4/4 e os quatro testes de integração AppContainer executados, sem filtros. Não é auditoria universal de segurança.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "15.3",
+      "group": 15,
+      "group_title": "Segurança e isolamento",
+      "original_text": "Validação de IPC e limites de memória, CPU, profundidade e trabalho.",
+      "source_line": 363,
+      "state": "Parcial",
+      "implementations": [
+        "Framing, versão/ID/payload/geometria, limites DOM/CSS/VM, deadlines e Job; Deserialize limitado e writer privado de 48 MiB antes do transporte.",
+        "Ciclo 16: codec separado de snapshot diagnóstico limitado a 12 MiB, com contagens/comprimentos/quotas agregadas verificados antes de alocar e rejeição de versões, truncamento e bytes excedentes; replay preserva origem e validação do supervisor/IPC."
+      ],
+      "gaps": [
+        "Orçamento global de CPU/memória, memória transitória/strings/frame já alocados e fuzzing.",
+        "Snapshot não é autenticado nem criptografado e seus bytes podem conter dados privados da página; não representa orçamento global, storage real ou replay completo de sessão/eventos."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:363",
+        "crates/browser-ipc/src/bounded.rs",
+        "crates/browser-ipc/src/encoding.rs",
+        "crates/browser-ipc/src/lib.rs",
+        "crates/browser-process/src/lib.rs",
+        "crates/browser-process/src/session.rs",
+        "docs/releases/2026-11-08-bounded-ipc-codec.md",
+        "docs/adr/0020-bounded-ipc-codec.md",
+        "apps/browser-cli/src/snapshot.rs",
+        "apps/browser-cli/src/main.rs",
+        "apps/browser-cli/tests/snapshots.rs",
+        "docs/specifications/diagnostic-snapshots.md"
+      ],
+      "validation": "Ciclo 16: IPC 23/23, process 18/18, security-sandbox 4/4 e os quatro testes de integração AppContainer executados, sem filtros. Não é auditoria universal de segurança. CLI: 9 testes do codec, 5 integrações de capture/replay e 12 de subprocesso, total 26/26. Replay HTTPS usa AppContainer verificado e não busca recursos na rede; a prova negativa da sandbox é distinta de fetch da página.",
+      "implementation_origin": "Protocolo/validação/limites preexistentes + codec limitado de 08/11 e correção float_roundtrip posterior. Ciclo 16 acrescenta capture/replay explícito do CLI e codec de snapshots.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "15.4",
+      "group": 15,
+      "group_title": "Segurança e isolamento",
+      "original_text": "Same-origin policy, CSP e políticas de isolamento entre origens.",
+      "source_line": 365,
+      "state": "Parcial",
+      "implementations": [
+        "Regras limitadas de origem no broker/módulos/storage e bloqueio de conteúdo misto/DNS privado."
+      ],
+      "gaps": [
+        "SOP/CSP/CORS e isolamento Web entre origens completos; recursos públicos de CDN não são universalmente de mesma origem."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:365",
+        "crates/browser-core/src/network.rs",
+        "crates/browser-core/src/module_assets.rs",
+        "crates/browser-process/src/session_storage.rs",
+        "docs/releases/2026-11-08-bounded-ipc-codec.md",
+        "docs/adr/0008-authorized-subresources.md",
+        "docs/security/threat-model.md"
+      ],
+      "validation": "Ciclo 16: IPC 23/23, process 18/18, security-sandbox 4/4 e os quatro testes de integração AppContainer executados, sem filtros. Não é auditoria universal de segurança.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "15.5",
+      "group": 15,
+      "group_title": "Segurança e isolamento",
+      "original_text": "Proteção de credenciais, armazenamento e permissões.",
+      "source_line": 367,
+      "state": "Parcial",
+      "implementations": [
+        "Chaves de IA no cofre do SO, perfil sem chaves/conteúdo, snapshots sem password/hidden, permissões por conversa/escopo e storage particionado limitado."
+      ],
+      "gaps": [
+        "Credenciais Web e armazenamento amplo; texto/URLs comuns podem revelar segredos, sem sanitização geral."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:367",
+        "crates/ai-runtime/src/lib.rs",
+        "crates/browser-config/src/lib.rs",
+        "crates/ai-context/src/lib.rs",
+        "crates/ai-context/src/snapshot.rs",
+        "docs/releases/2026-11-08-session-storage.md",
+        "docs/releases/2026-11-08-bounded-ai-observation.md",
+        "docs/security/threat-model.md"
+      ],
+      "validation": "Ciclo 16: IPC 23/23, process 18/18, security-sandbox 4/4 e os quatro testes de integração AppContainer executados, sem filtros. Não é auditoria universal de segurança.",
+      "implementation_origin": "Cofre/perfil/permissões preexistentes + sessionStorage e observação limitada de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "15.6",
+      "group": 15,
+      "group_title": "Segurança e isolamento",
+      "original_text": "Gestão de certificados e atualização de componentes vulneráveis.",
+      "source_line": 369,
+      "state": "Parcial",
+      "implementations": [
+        "Validação TLS padrão rustls e dependências fixadas em Cargo.lock."
+      ],
+      "gaps": [
+        "Gestão avançada de certificados, pipeline de correções/auditoria de dependências e atualizador autenticado; hashes/Build ID não são atualização automática de vulnerabilidades."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:369",
+        "crates/browser-core/Cargo.toml",
+        "crates/browser-core/src/network.rs",
+        "Cargo.lock",
+        "docs/security/threat-model.md",
+        "docs/distribution.md"
+      ],
+      "validation": "Ciclo 16: IPC 23/23, process 18/18, security-sandbox 4/4 e os quatro testes de integração AppContainer executados, sem filtros. Não é auditoria universal de segurança.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "15.7",
+      "group": 15,
+      "group_title": "Segurança e isolamento",
+      "original_text": "Tratamento seguro de crashes e conteúdo malformado.",
+      "source_line": 371,
+      "state": "Parcial",
+      "implementations": [
+        "Deadlines, encerramento/RAII/Job, framing/validação, rollback fatal e conservação do último checkpoint confirmado; testes de conteúdo malformado."
+      ],
+      "gaps": [
+        "Robustez universal, fuzzing, ensaio prolongado e revisão independente das superfícies privilegiadas."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:371",
+        "crates/browser-process/src/lib.rs",
+        "crates/browser-process/src/session.rs",
+        "crates/browser-core/src/media_metadata.rs",
+        "docs/releases/2026-11-08-bounded-ipc-codec.md",
+        "docs/security/threat-model.md"
+      ],
+      "validation": "Ciclo 16: IPC 23/23, process 18/18, security-sandbox 4/4 e os quatro testes de integração AppContainer executados, sem filtros. Não é auditoria universal de segurança.",
+      "implementation_origin": "Supervisão/rollback preexistentes + limites IPC/VM e correções funcionais de 08–09/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "15.8",
+      "group": 15,
+      "group_title": "Segurança e isolamento",
+      "original_text": "Acessos privilegiados mediados pelo broker, preservando o motor sem acesso direto a arquivos e rede.",
+      "source_line": 373,
+      "state": "Implementado",
+      "implementations": [
+        "No pipeline atual, browser-core resolve/canonicaliza/carrega recursos autorizados e entrega bytes/assets; renderer/web-* recebem dados tipados; resolutores SVG não fazem I/O. web-paint usa somente Write fornecido pelo host."
+      ],
+      "gaps": [
+        "Nenhuma lacuna de implementação identificada nesse contrato. Não equivale a sandbox perfeita, eliminação de TOCTOU ou garantia universal de segurança."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:373",
+        "crates/browser-core/src/lib.rs",
+        "crates/browser-core/src/network.rs",
+        "crates/browser-core/src/image_decoder.rs",
+        "crates/browser-process/src/lib.rs",
+        "crates/browser-process/src/session.rs",
+        "docs/adr/0008-authorized-subresources.md",
+        "docs/adr/0014-brokered-static-modules.md",
+        "docs/adr/0018-brokered-local-audio-metadata.md"
+      ],
+      "validation": "Ciclo 16: IPC 23/23, process 18/18, security-sandbox 4/4 e os quatro testes de integração AppContainer executados, sem filtros. Não é auditoria universal de segurança.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": [
+        "appcontainer_proves_file_network_and_child_process_denial_before_remote_render",
+        "remote_live_document_retains_state_inside_the_verified_appcontainer",
+        "desktop_binary_verifies_appcontainer_and_renders_remote_bytes",
+        "desktop_local_and_sandboxed_sessions_can_start_concurrently"
+      ]
+    },
+    {
+      "id": "16.1",
+      "group": 16,
+      "group_title": "Driver próprio de renderização do Noir",
+      "original_text": "\\*\\*Cena e display list próprias\\*\\*, produzidas pelo layout.",
+      "source_line": 379,
+      "state": "Implementado",
+      "implementations": [
+        "Layout próprio produz LayoutResult/DisplayItem; renderer forma RenderedPage; Scene::prepare gera triângulos/comandos/texturas/atlas próprios consumidos pelo backend da página."
+      ],
+      "gaps": [
+        "Nenhuma lacuna de implementação no contrato de cena/display list próprias. Cobertura de CSS/efeitos e validação da apresentação pertencem aos demais subitens."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:379",
+        "crates/web-layout/src/lib.rs",
+        "crates/browser-ipc/src/lib.rs",
+        "crates/web-graphics/src/lib.rs",
+        "apps/browser-desktop/src/page_gpu.rs",
+        "docs/adr/0011-owned-web-graphics-driver.md"
+      ],
+      "validation": "Ciclo 16: graphics 9/9, paint 7/7, layout 26/26, renderer 15/15 e desktop unitário 35/35. Não equivale a validação GPU/visual/performance ampla.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": [
+        "glyph_clip_tests::fully_visible_clip_preserves_geometry_order_and_images"
+      ]
+    },
+    {
+      "id": "16.2",
+      "group": 16,
+      "group_title": "Driver próprio de renderização do Noir",
+      "original_text": "Árvores de propriedades para transforms, efeitos, clips e rolagem.",
+      "source_line": 381,
+      "state": "Parcial",
+      "implementations": [
+        "Pilha PushClip/PopClip, interseções aninhadas e transformações internas de viewport/zoom/rolagem da shell."
+      ],
+      "gaps": [
+        "Árvores de propriedades de transforms, efeitos, clips e scroll completas."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:381",
+        "crates/web-graphics/src/lib.rs",
+        "apps/browser-desktop/src/page_gpu.rs",
+        "docs/releases/2026-11-08-clipped-glyph-raster.md"
+      ],
+      "validation": "Ciclo 16: graphics 9/9, paint 7/7, layout 26/26, renderer 15/15 e desktop unitário 35/35. Não equivale a validação GPU/visual/performance ampla.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "16.3",
+      "group": 16,
+      "group_title": "Driver próprio de renderização do Noir",
+      "original_text": "Rasterização de texto, imagens, vetores, bordas e efeitos.",
+      "source_line": 383,
+      "state": "Parcial",
+      "implementations": [
+        "Glifos fontdue, quads/retângulos/bordas, texturas RGBA/alpha, SVG limitado rasterizado no broker e CPU próprio no CLI; glifos totalmente recortados não são rasterizados."
+      ],
+      "gaps": [
+        "Vetores/efeitos/shaping e fidelidade geral completos."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:383",
+        "crates/web-graphics/src/lib.rs",
+        "crates/web-paint/src/lib.rs",
+        "crates/browser-core/src/image_decoder.rs",
+        "apps/browser-desktop/src/page_gpu.rs",
+        "docs/releases/2026-11-08-clipped-glyph-raster.md",
+        "docs/adr/0011-owned-web-graphics-driver.md"
+      ],
+      "validation": "Ciclo 16: graphics 9/9, paint 7/7, layout 26/26, renderer 15/15 e desktop unitário 35/35. Não equivale a validação GPU/visual/performance ampla.",
+      "implementation_origin": "Driver CPU/GPU e decoder preexistentes + culling anterior à rasterização de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "16.4",
+      "group": 16,
+      "group_title": "Driver próprio de renderização do Noir",
+      "original_text": "Atlas de glifos, texturas, buffers e gerenciamento de recursos.",
+      "source_line": 385,
+      "state": "Implementado",
+      "implementations": [
+        "Gerenciador do backend limitado com atlas R8 2048², 4096 combinações, budgets de raster/vértices/texturas, uploads e cache de duas cenas GPU com descarte; métricas separadas da materialização de glifos."
+      ],
+      "gaps": [
+        "Nenhuma parte nomeada do gerenciador atual está ausente. Limites: sem paginação do atlas, expansão geral ou recuperação device loss (esta última em 16.10); implementação não comprova execução GPU."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:385",
+        "crates/web-graphics/src/lib.rs",
+        "apps/browser-desktop/src/page_gpu.rs",
+        "docs/releases/2026-11-08-clipped-glyph-raster.md",
+        "docs/adr/0011-owned-web-graphics-driver.md"
+      ],
+      "validation": "Ciclo 16: graphics 9/9, paint 7/7, layout 26/26, renderer 15/15 e desktop unitário 35/35. Não equivale a validação GPU/visual/performance ampla.",
+      "implementation_origin": "Atlas/texturas/buffers/cache preexistentes + métricas separadas da materialização de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": [
+        "glyph_clip_tests::hidden_large_kinds_do_not_spend_atlas_but_visible_kinds_do"
+      ]
+    },
+    {
+      "id": "16.5",
+      "group": 16,
+      "group_title": "Driver próprio de renderização do Noir",
+      "original_text": "Composição de camadas, superfícies intermediárias e transparência.",
+      "source_line": 387,
+      "state": "Parcial",
+      "implementations": [
+        "Composição em ordem de draw, blending alpha e fronteiras dos controles/destaques."
+      ],
+      "gaps": [
+        "Compositor de camadas e superfícies intermediárias completo."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:387",
+        "apps/browser-desktop/src/page_gpu.rs",
+        "crates/web-graphics/src/lib.rs",
+        "crates/web-paint/src/lib.rs",
+        "docs/releases/2026-11-08-clipped-glyph-raster.md",
+        "docs/adr/0011-owned-web-graphics-driver.md"
+      ],
+      "validation": "Ciclo 16: graphics 9/9, paint 7/7, layout 26/26, renderer 15/15 e desktop unitário 35/35. Não equivale a validação GPU/visual/performance ampla.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "16.6",
+      "group": 16,
+      "group_title": "Driver próprio de renderização do Noir",
+      "original_text": "Invalidação parcial, tiles, descarte de áreas invisíveis e controle de sobreposição.",
+      "source_line": 389,
+      "state": "Parcial",
+      "implementations": [
+        "Cena retida/cache, culling de viewport, clipping e orçamento de overdraw; glifo fora do clip descartado antes do bitmap/atlas."
+      ],
+      "gaps": [
+        "Invalidação parcial, tiles e occlusion completos; uploads de imagens não otimizados e texto fora do viewport preservado para rolagem."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:389",
+        "apps/browser-desktop/src/page_scene.rs",
+        "apps/browser-desktop/src/page_gpu.rs",
+        "crates/web-graphics/src/lib.rs",
+        "docs/releases/2026-11-08-clipped-glyph-raster.md"
+      ],
+      "validation": "Ciclo 16: graphics 9/9, paint 7/7, layout 26/26, renderer 15/15 e desktop unitário 35/35. Não equivale a validação GPU/visual/performance ampla.",
+      "implementation_origin": "Cache/clipping/overdraw preexistentes + descarte de glifos invisíveis de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "16.7",
+      "group": 16,
+      "group_title": "Driver próprio de renderização do Noir",
+      "original_text": "Agendamento de frames e sincronização com apresentação.",
+      "source_line": 391,
+      "state": "Parcial",
+      "implementations": [
+        "Pulsos rAF do host, timestamp real, até 32 callbacks por snapshot e identidade/tempo validados; oportunidade para aba exibida e elegível."
+      ],
+      "gaps": [
+        "Vsync, apresentação GPU e scheduler Web completo não garantidos."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:391",
+        "apps/browser-desktop/src/shell.rs",
+        "crates/web-bindings/src/animation.rs",
+        "crates/browser-process/src/session.rs",
+        "docs/releases/2026-11-08-animation-frames.md",
+        "docs/adr/0021-host-animation-frame-pulses.md"
+      ],
+      "validation": "Ciclo 16: graphics 9/9, paint 7/7, layout 26/26, renderer 15/15 e desktop unitário 35/35. Não equivale a validação GPU/visual/performance ampla.",
+      "implementation_origin": "Loop nativo preexistente + pulsos rAF/IPC v8 de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "16.8",
+      "group": 16,
+      "group_title": "Driver próprio de renderização do Noir",
+      "original_text": "Scroll e animações responsivos durante trabalho pesado da página.",
+      "source_line": 393,
+      "state": "Parcial",
+      "implementations": [
+        "Trabalho de documento em subprocesso/thread, cena retida durante scroll e UI nativa; pulsos de frame não enfileiram trabalho se ocupado."
+      ],
+      "gaps": [
+        "Responsividade sob carga e frames independentes do compositor não demonstrados por benchmark; construção/raster/uploads também têm custo."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:393",
+        "apps/browser-desktop/src/shell.rs",
+        "apps/browser-desktop/src/page_scene.rs",
+        "docs/releases/2026-11-08-clipped-glyph-raster.md",
+        "docs/releases/2026-11-08-animation-frames.md"
+      ],
+      "validation": "Ciclo 16: graphics 9/9, paint 7/7, layout 26/26, renderer 15/15 e desktop unitário 35/35. Não equivale a validação GPU/visual/performance ampla.",
+      "implementation_origin": "Subprocessos/cena retida preexistentes + oferta descartável de frames de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "16.9",
+      "group": 16,
+      "group_title": "Driver próprio de renderização do Noir",
+      "original_text": "Integração de canvas, conteúdo 3D e vídeo.",
+      "source_line": 395,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Integração de canvas, 3D e vídeo da página; imagens e shader interno não equivalem a esses caminhos."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:395",
+        "docs/releases/2026-11-08-clipped-glyph-raster.md",
+        "apps/browser-desktop/src/page_gpu.rs",
+        "docs/releases/2026-11-08-natural-image-dimensions.md",
+        "docs/releases/2026-11-08-wav-metadata.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "16.10",
+      "group": 16,
+      "group_title": "Driver próprio de renderização do Noir",
+      "original_text": "Backend GPU, fallback CPU e recuperação após perda do dispositivo.",
+      "source_line": 397,
+      "state": "Parcial",
+      "implementations": [
+        "Backend próprio WGSL/wgpu e rasterizador CPU próprio no CLI."
+      ],
+      "gaps": [
+        "Fallback CPU desktop completo e recuperação de perda de dispositivo."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:397",
+        "apps/browser-desktop/src/page_gpu.rs",
+        "crates/web-paint/src/lib.rs",
+        "docs/releases/2026-11-08-clipped-glyph-raster.md",
+        "docs/adr/0011-owned-web-graphics-driver.md"
+      ],
+      "validation": "Ciclo 16: graphics 9/9, paint 7/7, layout 26/26, renderer 15/15 e desktop unitário 35/35. Não equivale a validação GPU/visual/performance ampla.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "16.11",
+      "group": 16,
+      "group_title": "Driver próprio de renderização do Noir",
+      "original_text": "Hit testing consistente com o conteúdo efetivamente apresentado.",
+      "source_line": 399,
+      "state": "Parcial",
+      "implementations": [
+        "Links/controles usam retângulos da display list com zoom/clipping; foco recortado e regiões de hit não crescem para acomodar labels."
+      ],
+      "gaps": [
+        "Hit testing DOM completo, transforms/stacking/overlap e identidade unificada de links fragmentados; validação visual ampla pendente."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:399",
+        "apps/browser-desktop/src/shell.rs",
+        "docs/releases/2026-11-08-web-link-keyboard-focus.md",
+        "docs/validation/2026-11-03-controls-v051.md"
+      ],
+      "validation": "Ciclo 16: graphics 9/9, paint 7/7, layout 26/26, renderer 15/15 e desktop unitário 35/35. Não equivale a validação GPU/visual/performance ampla.",
+      "implementation_origin": "Geometria de links/controles preexistente + contorno de foco recortado de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "17.1",
+      "group": 17,
+      "group_title": "Automação e agente",
+      "original_text": "API interna estável para observar DOM, layout, acessibilidade e imagem renderizada.",
+      "source_line": 409,
+      "state": "Parcial",
+      "implementations": [
+        "BrowserSnapshot de texto/display list, links/controles confirmados com aba/geração; cópia limitada e JSON de até 10.000 bytes após filtro de permissões."
+      ],
+      "gaps": [
+        "API integral e estável de DOM/layout/acessibilidade/imagem e percepção visual."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:409",
+        "crates/ai-context/src/lib.rs",
+        "crates/ai-context/src/snapshot.rs",
+        "apps/browser-desktop/src/shell.rs",
+        "docs/releases/2026-11-08-bounded-ai-observation.md"
+      ],
+      "validation": "Ciclo 16: ai-context 9/9 e desktop unitário 35/35. O teste de inferência real permanece ignorado; resistência ampla a prompt injection não comprovada. Repetição posterior: 24 chamadas (12 isoladas e 12 do grupo de quatro), totalizando 60 execuções de casos aprovadas, zero falhas; não são 60 testes novos.",
+      "implementation_origin": "Observação interna preexistente + limite de extração/JSON de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md",
+        "target/validation/2026-11-09-snapshot-fixture-after.log"
+      ],
+      "tests": []
+    },
+    {
+      "id": "17.2",
+      "group": 17,
+      "group_title": "Automação e agente",
+      "original_text": "Navegação, seleção, digitação, rolagem e cliques com identificação de contexto.",
+      "source_line": 411,
+      "state": "Parcial",
+      "implementations": [
+        "Vocabulário Navigate/OpenTab/SwitchTab/Select/Type/Click validado por DocumentScope/IDs; seleção pode focar e rolar até elemento exposto."
+      ],
+      "gaps": [
+        "Rolagem arbitrária, ações gerais DOM/coordenadas, elementos fora da projeção e outros contextos."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:411",
+        "crates/ai-context/src/lib.rs",
+        "apps/browser-desktop/src/shell.rs",
+        "docs/adr/0006-ai-browser-tools.md",
+        "docs/releases/2026-11-08-bounded-ai-observation.md"
+      ],
+      "validation": "Ciclo 16: ai-context 9/9 e desktop unitário 35/35. O teste de inferência real permanece ignorado; resistência ampla a prompt injection não comprovada.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "17.3",
+      "group": 17,
+      "group_title": "Automação e agente",
+      "original_text": "Esperas por carregamento, elementos, alterações e resultados.",
+      "source_line": 413,
+      "state": "Parcial",
+      "implementations": [
+        "Espera por commit real de navegação/evento com pending/queued, timeout de 90 s e invalidação da sequência por mudança de geração."
+      ],
+      "gaps": [
+        "wait-for-element, condições/mutações e esperas semânticas gerais ausentes do vocabulário."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:413",
+        "apps/browser-desktop/src/shell.rs",
+        "crates/ai-context/src/lib.rs",
+        "docs/adr/0006-ai-browser-tools.md",
+        "docs/releases/2026-11-08-bounded-ai-observation.md"
+      ],
+      "validation": "Ciclo 16: ai-context 9/9 e desktop unitário 35/35. O teste de inferência real permanece ignorado; resistência ampla a prompt injection não comprovada.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "17.4",
+      "group": 17,
+      "group_title": "Automação e agente",
+      "original_text": "Cancelamento, rastreamento de ações e rejeição de comandos antigos.",
+      "source_line": 415,
+      "state": "Parcial",
+      "implementations": [
+        "interrupt_sequence/cancelled, estados pending/authorized/executing_action e resultado real rastreados; aba/geração conferidas antes de despachar/continuar, com limites de 8/32 ações."
+      ],
+      "gaps": [
+        "Cancelamento não desfaz nem interrompe necessariamente operação já iniciada; rastreamento limitado ao fluxo da conversa, sem API geral de automação."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:415",
+        "apps/browser-desktop/src/ai_panel.rs",
+        "apps/browser-desktop/src/shell.rs",
+        "docs/releases/2026-11-08-bounded-ai-observation.md",
+        "docs/adr/0006-ai-browser-tools.md"
+      ],
+      "validation": "Ciclo 16: ai-context 9/9 e desktop unitário 35/35. O teste de inferência real permanece ignorado; resistência ampla a prompt injection não comprovada.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "17.5",
+      "group": 17,
+      "group_title": "Automação e agente",
+      "original_text": "Permissões e proteção contra instruções maliciosas vindas das páginas.",
+      "source_line": 417,
+      "state": "Parcial",
+      "implementations": [
+        "Grants por escopo, permissões nativas, JSON fechado, contexto de página não confiável, revogação/filtro antes da cópia/envio e exclusão de password/hidden."
+      ],
+      "gaps": [
+        "Resistência ampla a prompt injection não demonstrada; texto/URLs podem conter segredos; modo total permite o vocabulário sem revisão por ação."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:417",
+        "crates/ai-context/src/lib.rs",
+        "crates/ai-runtime/src/lib.rs",
+        "apps/browser-desktop/src/ai_panel.rs",
+        "docs/adr/0006-ai-browser-tools.md",
+        "docs/releases/2026-11-08-bounded-ai-observation.md"
+      ],
+      "validation": "Ciclo 16: ai-context 9/9 e desktop unitário 35/35. O teste de inferência real permanece ignorado; resistência ampla a prompt injection não comprovada.",
+      "implementation_origin": "Permissões/escopo preexistentes + filtragem antes da cópia/JSON limitado de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "17.6",
+      "group": 17,
+      "group_title": "Automação e agente",
+      "original_text": "WebDriver/WebDriver BiDi se houver objetivo de integração com ferramentas externas.",
+      "source_line": 419,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "WebDriver/BiDi não verificados. Item condicional: definir objetivo de integração externa; automação interna não implementa esses padrões."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:419",
+        "docs/releases/2026-11-08-bounded-ai-observation.md",
+        "crates/ai-context/src/lib.rs",
+        "docs/adr/0006-ai-browser-tools.md"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "18.1",
+      "group": 18,
+      "group_title": "Produto, acessibilidade e operação",
+      "original_text": "Árvore de acessibilidade do conteúdo e integração com leitores de tela.",
+      "source_line": 429,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Árvore semântica do conteúdo e integração com leitores de tela; controles nativos da shell e contorno de foco não criam essa árvore."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:429",
+        "docs/releases/2026-11-08-web-link-keyboard-focus.md",
+        "docs/architecture/capabilities.md",
+        "apps/browser-desktop/src/shell.rs"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "18.2",
+      "group": 18,
+      "group_title": "Produto, acessibilidade e operação",
+      "original_text": "Navegação por teclado, foco e preferências de acessibilidade.",
+      "source_line": 431,
+      "state": "Parcial",
+      "implementations": [
+        "Widgets egui/atalhos/foco, preferência reduce_motion e foco visível nativo dos links sob clipping."
+      ],
+      "gaps": [
+        "Ordem Tab DOM completa, tabindex, foco/eventos DOM, rolagem até todos os links e avaliação de acessibilidade."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:431",
+        "apps/browser-desktop/src/shell.rs",
+        "crates/browser-config/src/lib.rs",
+        "docs/releases/2026-11-08-web-link-keyboard-focus.md"
+      ],
+      "validation": "Ciclo 16: browser-config 6/6 e desktop unitário 35/35; integrações AppContainer executadas. Não certifica acessibilidade, atualizador ou matriz ampla de SO/GPU.",
+      "implementation_origin": "Teclado/widgets/reduce_motion preexistentes + foco visível em links de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "18.3",
+      "group": 18,
+      "group_title": "Produto, acessibilidade e operação",
+      "original_text": "Perfis, histórico, downloads, impressão e recuperação de sessões.",
+      "source_line": 433,
+      "state": "Parcial",
+      "implementations": [
+        "Perfil v2 com migração/backup, favoritos/workspaces/abas, restauração opt-in de endereços e histórico/scroll em memória."
+      ],
+      "gaps": [
+        "Downloads/impressão não confirmados; recuperação completa DOM/VM/formulários e histórico/offsets após reinício. Raster/PPM do CLI não é impressão do navegador."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:433",
+        "crates/browser-config/src/lib.rs",
+        "apps/browser-desktop/src/shell.rs",
+        "docs/releases/2026-11-08-history-scroll.md"
+      ],
+      "validation": "Ciclo 16: browser-config 6/6 e desktop unitário 35/35; integrações AppContainer executadas. Não certifica acessibilidade, atualizador ou matriz ampla de SO/GPU.",
+      "implementation_origin": "Perfil/restauração preexistentes + offsets do histórico nativo de 08/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "18.4",
+      "group": 18,
+      "group_title": "Produto, acessibilidade e operação",
+      "original_text": "Gestão de processos, abas suspensas e pressão de memória.",
+      "source_line": 435,
+      "state": "Parcial",
+      "implementations": [
+        "Até 16 RendererSession simultâneas com RAII/timeout/Job, sessões por aba, workspaces estacionados e carga inicial adiada."
+      ],
+      "gaps": [
+        "Suspensão/descarte/recarga por pressão de memória e gerenciamento adaptativo completos não verificados."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:435",
+        "crates/browser-process/src/session.rs",
+        "apps/browser-desktop/src/shell.rs",
+        "docs/architecture/capabilities.md"
+      ],
+      "validation": "Ciclo 16: browser-config 6/6 e desktop unitário 35/35; integrações AppContainer executadas. Não certifica acessibilidade, atualizador ou matriz ampla de SO/GPU.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "18.5",
+      "group": 18,
+      "group_title": "Produto, acessibilidade e operação",
+      "original_text": "Diagnósticos de console, rede, DOM, estilos e desempenho.",
+      "source_line": 437,
+      "state": "Parcial",
+      "implementations": [
+        "Inspector lista warnings de execução/CSS/layout e até 150 DisplayItem; HUD/CLI expõem tempos, nós, PID e memória. console.* grava mensagens limitadas em DocumentSession.state.logs, acessíveis por console_messages(), ainda sem canal no inspector.",
+        "Ciclo 16: erros preservam histórico/contextos internos limitados e rótulos de origem/fase/script/nó/tag/tipo; URLs saneadas e posições de parse somente com proveniência real, sem alterar message/thrown/Error.cause ou executar getters/coerções para diagnosticar.",
+        "CLI capture/replay explícito e limitado preserva DocumentInput e sua origem HTTPS, executa replay em AppContainer sem buscar recursos na rede e sem cookies/perfil/storage real. Arquivo preserva bytes de página, não é captura HTTP bruta nem replay de eventos."
+      ],
+      "gaps": [
+        "Console real ainda não ligado ao renderer/inspector; DevTools completos de rede/DOM/estilos/performance, profiling/edição/depuração, stack trace e proveniência de funções/callbacks persistidos pendentes. Nenhuma linha/coluna é inferida de offsets de JSON/eval/Function/link/runtime."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:437",
+        "apps/browser-desktop/src/shell.rs",
+        "apps/browser-desktop/src/hud.rs",
+        "apps/browser-cli/src/main.rs",
+        "crates/web-bindings/src/lib.rs",
+        "crates/web-renderer/src/lib.rs",
+        "docs/architecture/capabilities.md",
+        "target/validation/google-current/diagnosis.md",
+        "crates/web-javascript/src/exception_diagnostics.rs",
+        "crates/web-bindings/src/diagnostics.rs",
+        "crates/web-bindings/src/diagnostics_tests.rs",
+        "apps/browser-cli/src/snapshot.rs",
+        "apps/browser-cli/tests/snapshots.rs",
+        "docs/specifications/script-diagnostics.md",
+        "docs/specifications/diagnostic-snapshots.md"
+      ],
+      "validation": "Ciclo 16: bindings 130/130, incluindo 17 testes de diagnóstico; VM 440/440; CLI 26/26 (9 codec, 5 capture/replay e 12 subprocesso). Fmt e Clippy globais aprovados. Essas verificações não conectam console ao inspector nem validam DevTools completos.",
+      "implementation_origin": "Inspector/warnings/HUD e console interno preexistentes; ciclo 16 acrescenta diagnóstico contextual de exceções/bindings e capture/replay do CLI. Console continua sem ligação ao inspector.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": [
+        "diagnostics::tests::runtime_json_and_dynamic_errors_do_not_claim_initial_source_positions",
+        "diagnostics::tests::unsupported_dom_src_identifies_receiver_and_type_without_value_or_coercion",
+        "diagnostics::tests::timer_diagnostic_identifies_src_receiver_without_fabricating_script_source"
+      ]
+    },
+    {
+      "id": "18.6",
+      "group": 18,
+      "group_title": "Produto, acessibilidade e operação",
+      "original_text": "Instalador, assinatura, atualização autenticada e rollback.",
+      "source_line": 439,
+      "state": "Parcial",
+      "implementations": [
+        "Scripts build/package/install-current, atalhos, Build ID/SHA-256, estágio e restauração da versão anterior se a promoção falha."
+      ],
+      "gaps": [
+        "Assinatura e atualizador autenticado; rollback local de empacotamento não é atualização remota autenticada."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:439",
+        "docs/distribution.md",
+        "scripts/build.ps1",
+        "scripts/package.ps1",
+        "scripts/install-current.ps1",
+        "scripts/distribution-common.ps1",
+        "docs/architecture/capabilities.md"
+      ],
+      "validation": "Ciclo 16: browser-config 6/6 e desktop unitário 35/35; integrações AppContainer executadas. Não certifica acessibilidade, atualizador ou matriz ampla de SO/GPU.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "18.7",
+      "group": 18,
+      "group_title": "Produto, acessibilidade e operação",
+      "original_text": "Compatibilidade com os sistemas operacionais e GPUs oficialmente atendidos.",
+      "source_line": 441,
+      "state": "Parcial",
+      "implementations": [
+        "Distribuição Windows x64, caminhos Windows/Linux, CI definida para ambos e backend wgpu com limites; evidências históricas Windows."
+      ],
+      "gaps": [
+        "Matriz oficial de SO/GPU/versões e ensaios atuais amplos; remoto Linux recusado sem sandbox. Workflow existente não comprova execução/resultado remoto."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:441",
+        ".github/workflows/ci.yml",
+        "apps/browser-desktop/src/page_gpu.rs",
+        "crates/security-sandbox/src/lib.rs",
+        "docs/architecture/acceptance.md"
+      ],
+      "validation": "Ciclo 16: browser-config 6/6 e desktop unitário 35/35; integrações AppContainer executadas. Não certifica acessibilidade, atualizador ou matriz ampla de SO/GPU.",
+      "implementation_origin": "Base preexistente à rodada de recortes de 08/11; ver fontes do subsistema.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "19.1",
+      "group": 19,
+      "group_title": "Comprovação de compatibilidade",
+      "original_text": "Conformidade JavaScript acompanhada pelo Test262.",
+      "source_line": 447,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Harness, execução e cobertura Test262 não comprovados; os 423 testes próprios da VM não são Test262 nem conformidade ECMAScript integral."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:447",
+        "docs/architecture/acceptance.md",
+        "docs/validation/2026-11-08-functional-baseline.md",
+        "crates/web-javascript/src/lib.rs"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "19.2",
+      "group": 19,
+      "group_title": "Comprovação de compatibilidade",
+      "original_text": "Conformidade da plataforma acompanhada pelos Web Platform Tests.",
+      "source_line": 449,
+      "state": "Pendente",
+      "implementations": [],
+      "gaps": [
+        "Harness, execução e cobertura Web Platform Tests não comprovados; testes internos e fixtures não são WPT."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:449",
+        "docs/architecture/acceptance.md",
+        "docs/architecture/capabilities.md",
+        ".github/workflows/ci.yml"
+      ],
+      "validation": "Não verificado como capacidade implementada. As suítes internas aprovadas não comprovam este recurso ausente/não demonstrado; consultar as lacunas e fontes.",
+      "implementation_origin": "Sem implementação específica confirmada para este escopo; capacidades relacionadas não são contadas como conclusão.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "19.3",
+      "group": 19,
+      "group_title": "Comprovação de compatibilidade",
+      "original_text": "Suítes específicas de gráficos e mídia.",
+      "source_line": 451,
+      "state": "Parcial",
+      "implementations": [
+        "Testes próprios de raster/atlas/clipping/overdraw, imagens e metadados WAV e fixtures específicas, com execuções unitárias registradas."
+      ],
+      "gaps": [
+        "Suítes completas GPU/visual e mídia/reprodução/codecs; aprovações CPU/geometria não validam apresentação GPU."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:451",
+        "crates/web-graphics/src/lib.rs",
+        "crates/web-paint/src/lib.rs",
+        "crates/browser-core/src/media_metadata.rs",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "validation": "Ciclo 16: workspace 845 aprovados, 0 falhas, 1 inferência real ignorada, 0 filtrados. Resultado de testes próprios, sem Test262/WPT, soak ou auditoria independente.",
+      "implementation_origin": "Testes/fixtures próprios preexistentes + regressões de 08/11 e execuções dos ciclos funcionais.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "19.4",
+      "group": 19,
+      "group_title": "Comprovação de compatibilidade",
+      "original_text": "Regressões com páginas reais, incluindo busca, login, formulários e reprodução.",
+      "source_line": 453,
+      "state": "Parcial",
+      "implementations": [
+        "Histórico de Google/Wikipedia e regressões reduzidas de controles; smoke GUI de 09/11 no snapshot ciclo 13 mostrou JS/DOM ok na fixture compatibility-v06.html e logo/campo/botões na homepage Google.",
+        "Ciclo 16: nova captura pública da homepage pelo broker e replay fiel do DocumentInput HTTPS em AppContainer, com capture/replay saída 0, sem perfil/cookies/storage real e sem busca de recursos durante replay. O diagnóstico preservou exceções anteriormente mascaradas por _DumpException.",
+        "Regressão GUI separada do ciclo 16: digitou e submeteu uma consulta sintética pelo formulário nativo, navegou a Google Search e voltou à homepage pelo botão Voltar. O teste registrou a falha de renderização dos resultados, não busca funcional."
+      ],
+      "gaps": [
+        "Incompatibilidades da homepage não corrigidas: script 2 registrou Host/native exotic descriptors are not implemented; scripts 8/9 registraram Cannot access a property of null or undefined antes de _DumpException. Timer recusou src em node=112, tag=script, value-type=string; CSS continua ignorado em parte. Não se inventa linha/coluna ou expressão causadora.",
+        "Busca GUI foi testada e falhou em exibir resultados: consulta Noir browser test produziu apenas a mensagem de dificuldade da Pesquisa Google; warnings observados Value is not callable (random), performance is not defined e seletores CSS ignorados, sem comprovar causalidade completa. Voltar restaurou URL/posição do histórico, com campo vazio; não prova BFCache ou restauração de formulário. Não houve segunda busca, login, interação com CAPTCHA ou reprodução. Correções Symbol/Math/performance permanecem em andamento, fora da evidência validada."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:453",
+        "docs/validation/2026-11-02-windows-v4.md",
+        "docs/validation/2026-11-03-controls-v051.md",
+        "docs/validation/2026-11-03-sandbox-v061.md",
+        "fixtures/form-control-sizing.html",
+        "docs/architecture/acceptance.md",
+        "target/validation/google-current/result.json",
+        "target/validation/google-current/diagnosis.md",
+        "target/validation/google-current/google-home.png",
+        "target/validation/google-current/google-inspector.png",
+        "apps/browser-cli/src/snapshot.rs",
+        "apps/browser-cli/tests/snapshots.rs",
+        "docs/specifications/script-diagnostics.md",
+        "docs/specifications/diagnostic-snapshots.md",
+        "target/validation/google-diagnostics-cycle16/capture-session.json",
+        "target/validation/google-diagnostics-cycle16/google-home-replay.json",
+        "target/validation/google-search-cycle16/report.md",
+        "target/validation/google-search-cycle16/result.json",
+        "target/validation/google-search-cycle16/binary-and-session.json",
+        "target/validation/google-search-cycle16/search-result.jpg",
+        "target/validation/google-search-cycle16/search-inspector.jpg",
+        "target/validation/google-search-cycle16/back-home.jpg"
+      ],
+      "validation": "Ciclo 16 tem dois ensaios distintos: (1) captura/replay CLI da homepage, SHA-256 672A7D6F29D9497484C13BD010558AC7A1F5C5A99611FC57F5D5CF4050F8F3D7, códigos 0, sem envio de consulta; (2) GUI de busca/Voltar, SHA-256 58D65BF453DB1A0A928C535E650DABFEF07C40139738F60A1483998E6420DCAB, iniciado aproximadamente em 2026-11-09T02:24:31Z com perfil temporário: submissão e Voltar funcionaram, lista de resultados não apareceu. Sem segunda busca/login/reprodução; nenhum CAPTCHA ou prompt de consentimento/permissão observado. Nenhum desses resultados valida correções posteriores.",
+      "implementation_origin": "Registros históricos e smoke GUI ciclo 13 preservados; ciclo 16 acrescenta captura/replay explícitos e diagnóstico do mesmo conjunto congelado de bytes. São snapshots diferentes, não reclassificação retrospectiva do smoke antigo. Posteriormente, teste GUI separado de busca/Voltar em cópia identificada do ciclo 16; nenhuma correção Symbol/Math/performance foi incluída nesse snapshot.",
+      "validation_references": [
+        "target/validation/google-current/result.json",
+        "target/validation/google-current/diagnosis.md",
+        "target/validation/google-current/snapshot.json",
+        "target/validation/google-diagnostics-cycle16/capture-session.json",
+        "target/validation/google-diagnostics-cycle16/capture.log.exitcode",
+        "target/validation/google-diagnostics-cycle16/replay.log.exitcode",
+        "target/validation/google-diagnostics-cycle16/google-home-replay.json",
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "target/validation/google-search-cycle16/report.md",
+        "target/validation/google-search-cycle16/result.json",
+        "target/validation/google-search-cycle16/binary-and-session.json"
+      ],
+      "tests": []
+    },
+    {
+      "id": "19.5",
+      "group": 19,
+      "group_title": "Comprovação de compatibilidade",
+      "original_text": "Fuzzing, testes prolongados, desempenho e revisão de segurança.",
+      "source_line": 455,
+      "state": "Parcial",
+      "implementations": [
+        "Modelo de ameaças, revisão estática, testes de malformados/limites/crash/rollback e métricas internas; histórico de falhas/correções preservado."
+      ],
+      "gaps": [
+        "Fuzzing com corpus/sanitizers, soak, benchmarks controlados, auditoria independente e avaliações de prompt injection. Testes unitários não são fuzzing."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:455",
+        "docs/security/threat-model.md",
+        "docs/architecture/acceptance.md",
+        "crates/browser-process/src/lib.rs",
+        "crates/web-paint/src/lib.rs",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "validation": "Ciclo 16: workspace 845 aprovados, 0 falhas, 1 inferência real ignorada, 0 filtrados. Resultado de testes próprios, sem Test262/WPT, soak ou auditoria independente.",
+      "implementation_origin": "Modelo de ameaças/testes de limites preexistentes + revisão e ciclos de correção de 08–09/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    },
+    {
+      "id": "19.6",
+      "group": 19,
+      "group_title": "Comprovação de compatibilidade",
+      "original_text": "Matriz pública distinguindo implementado, parcial, indisponível e validado.",
+      "source_line": 457,
+      "state": "Parcial",
+      "implementations": [
+        "Matriz de capacidades, releases/subconjuntos com lacunas, relatórios de validação separados e este checklist rastreável de todos os 137 subitens."
+      ],
+      "gaps": [
+        "Publicação pública efetiva não verificada; manutenção contínua e cobertura de validação completa pendentes. Documentação no repositório não comprova publicação."
+      ],
+      "references": [
+        "docs/roadmap/implementações Planejadas.md:457",
+        "docs/architecture/capabilities.md",
+        "docs/releases/2026-11-08-roadmap-first-pass.md",
+        "docs/validation/2026-11-08-functional-baseline.md",
+        "docs/roadmap/checklist-implementacoes-2026-11-09.md"
+      ],
+      "validation": "Ciclo 16: workspace 845 aprovados, 0 falhas, 1 inferência real ignorada, 0 filtrados. Resultado de testes próprios, sem Test262/WPT, soak ou auditoria independente.",
+      "implementation_origin": "Matriz/reports preexistentes + releases da rodada e inventário integral de 09/11.",
+      "validation_references": [
+        "target/validation/2026-11-09-cycle16-tests.log",
+        "docs/validation/2026-11-08-functional-baseline.md"
+      ],
+      "tests": []
+    }
+  ],
+  "counts_by_state": {
+    "Implementado": 4,
+    "Parcial": 92,
+    "Pendente": 41
+  },
+  "complete_macro_groups": 0,
+  "method": "Leitura documental e de fontes, cotejo literal dos bullets, consulta de logs já executados por outros responsáveis. Esta auditoria não executou Cargo, GUI ou rede e não alterou código, roadmap original nem executável entregue.",
+  "validation_snapshot": {
+    "cycle": 16,
+    "command": "cargo test --workspace --offline --locked --no-fail-fast",
+    "exit_code": 0,
+    "passed": 845,
+    "failed": 0,
+    "ignored": 1,
+    "filtered": 0,
+    "ignored_reason": "Inferência real: tests::bundled_model_produces_real_output, requer modelo/runtime verificados e --ignored.",
+    "log": "target/validation/2026-11-09-cycle16-tests.log",
+    "fmt_log": "target/validation/2026-11-09-cycle16-fmt-after.log.exitcode",
+    "clippy_log": "target/validation/2026-11-09-cycle16-clippy-after.log",
+    "fmt_exit_code": 0,
+    "clippy_exit_code": 0,
+    "prior_cycle12": "774 aprovados, 11 reprovados, 1 ignorado, 4 filtrados; preservado como histórico.",
+    "prior_cycle13": "792 aprovados, 1 reprovado, 1 ignorado, 4 filtrados; AppContainer 2 CLI + 2 desktop executados separadamente e aprovados, não somados ao comando filtrado.",
+    "exclusions": "Inferência real permanece ignorada; sem Test262/WPT, soak ou certificação ampla de GPU/segurança/sites. Trabalho Symbol/Math/performance posterior ao snapshot está em andamento e não integra a evidência validada. Console ainda sem ligação ao inspector.",
+    "prior_cycle15": "797 aprovados, 0 falhas, 1 ignorado, 0 filtrados; logs preservados como histórico.",
+    "exitcode_file": "target/validation/2026-11-09-cycle16-tests.log.exitcode",
+    "clippy_exitcode_file": "target/validation/2026-11-09-cycle16-clippy-after.log.exitcode",
+    "gui_search": {
+      "report": "target/validation/google-search-cycle16/report.md",
+      "binary_sha256": "58D65BF453DB1A0A928C535E650DABFEF07C40139738F60A1483998E6420DCAB",
+      "query": "Noir browser test",
+      "submission": "navegou a Google Search",
+      "results": "não renderizados; apenas mensagem de dificuldade",
+      "back": "URL e posição do histórico restauradas; campo vazio",
+      "warnings": [
+        "Value is not callable (random)",
+        "performance is not defined",
+        "Unsupported CSS selectors were ignored"
+      ],
+      "second_query": false,
+      "login": false,
+      "captcha_observed": false,
+      "playback": false,
+      "later_fixes_included": false
+    }
+  },
+  "preserved_binary": {
+    "path": "dist/Noir/noir-validacao-2026-11-09.exe",
+    "sha256": "8B6C0C9E004742C8B3F986B2988F806F44409E3C834838C6FE2E3949A6C1DFDE",
+    "bytes": 83667968,
+    "changed_by_inventory": false
+  }
+}

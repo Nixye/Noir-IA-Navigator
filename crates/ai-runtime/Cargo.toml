@@ -1,0 +1,20 @@
+[package]
+name = "ai-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ai-context = { path = "../ai-context" }
+security-sandbox = { path = "../security-sandbox" }
+serde.workspace = true
+serde_json.workspace = true
+url.workspace = true
+directories = "6"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+rand = "0.9"
+sha2 = "0.10"
+keyring = { version = "3.6", features = ["windows-native", "linux-native-sync-persistent", "crypto-rust", "vendored"] }
+
+[lints]
+workspace = true

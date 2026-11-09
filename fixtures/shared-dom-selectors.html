@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Seletores DOM/CSS compartilhados</title></head>
+<body>
+<h1>Fonte para avaliação posterior</h1>
+<p>Esta fixture não foi executada. Esperado: ordem=first,second; primeiro=first; externo=true; composto=true; escape=true; irmaos=true; logico=true; destacado=true; snapshot=2/1; invalido=true; inativos=true.</p>
+<main class="outside"><section id="scope"><p id="first" class="card" data-kind="A">Primeiro</p><span>Separador</span><p id="second" class="card x:y" data-kind="B">Segundo</p></section></main>
+<template id="inert"><p class="hidden-fixture">Não consultar</p></template>
+<noscript><p class="hidden-fixture">Texto inativo</p></noscript>
+<p id="result">Ainda não executado.</p>
+<script>
+const scope = document.getElementById('scope');
+const first = document.getElementById('first');
+const second = document.getElementById('second');
+const snapshot = scope.querySelectorAll('#second, .card, #first');
+const order = Array.from(snapshot, function(node) { return node.id; }).join(',');
+const earliest = scope.querySelector('#second, #first').id;
+const outside = scope.querySelector('.outside #first') === first;
+const compound = first.matches('section > p.card[data-kind="A"]');
+const escaped = second.matches('.x\\:y');
+const siblings = second.matches('span + p') && second.matches('#first ~ p');
+const logical = second.matches(':is(p,aside):not([hidden]):nth-child(3)');
+const detached = document.createElement('article');
+detached.setAttribute('class', 'detached');
+const child = document.createElement('b');
+detached.appendChild(child);
+const closest = child.closest('article.detached') === detached && detached.closest('.detached') === detached;
+let invalid = false;
+try { scope.querySelectorAll('.card, :unknown'); } catch (error) { invalid = true; }
+const inert = document.querySelectorAll('.hidden-fixture').length === 0 && document.getElementById('inert').querySelectorAll('p').length === 0;
+second.remove();
+const after = scope.querySelectorAll('.card').length;
+document.getElementById('result').textContent = 'ordem=' + order + '; primeiro=' + earliest + '; externo=' + outside + '; composto=' + compound + '; escape=' + escaped + '; irmaos=' + siblings + '; logico=' + logical + '; destacado=' + closest + '; snapshot=' + snapshot.length + '/' + after + '; invalido=' + invalid + '; inativos=' + inert + '.';
+</script>
+</body>
+</html>

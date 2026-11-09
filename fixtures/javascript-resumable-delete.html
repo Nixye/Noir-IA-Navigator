@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Noir: delete resumível</title></head>
+<body>
+<h1>Delete resumível: fixture não executada</h1>
+<p>Expectativas para inspeção posterior, não resultados observados. Item 1 ABERTO.</p>
+<p id="common">Esperado: getter true / hole true / sloppy true / strict true / Reflect true</p>
+<p id="strings">Esperado: UTF16 true / Symbol true</p>
+<p id="async">Esperado: ordem BKC / delete true / nullish true / rejection true</p>
+<p id="generator">Esperado: base,chave / delete true / nullish true / return true</p>
+<p id="error">Nenhuma falha reportada até agora.</p>
+<script>
+function report(error) {
+    document.getElementById('error').textContent = 'Falha: ' + String(error);
+}
+function strictDelete(target) { 'use strict'; return delete target.x; }
+try {
+    let gets = 0;
+    const accessor = {};
+    Object.defineProperty(accessor, 'x', {
+        configurable: true, get: function() { gets++; return 1; }
+    });
+    const removed = delete accessor.x;
+    const array = [1, 2];
+    const hole = delete array[0];
+    const locked = {};
+    Object.defineProperty(locked, 'x', { value: 1, configurable: false });
+    const sloppy = delete locked.x;
+    let strict = false;
+    try { strictDelete(locked); } catch (error) { strict = error.name === 'TypeError'; }
+    document.getElementById('common').textContent =
+        'getter ' + (removed && gets === 0 && !Object.hasOwn(accessor, 'x')) +
+        ' / hole ' + (hole && array.length === 2 && !Object.hasOwn(array, '0')) +
+        ' / sloppy ' + (sloppy === false && locked.x === 1) +
+        ' / strict ' + strict + ' / Reflect ' + (Reflect.deleteProperty(locked, 'x') === false);
+    const astral = '\uD83D\uDE00';
+    const lone = '\uD800';
+    const symbol = Symbol('slot');
+    const symbolic = {};
+    symbolic[symbol] = 8;
+    const symbolRemoved = delete symbolic[symbol];
+    document.getElementById('strings').textContent =
+        'UTF16 ' + ((delete astral.length) === false && (delete astral[0]) === false &&
+        (delete astral[1]) === false && (delete astral[2]) === true &&
+        (delete lone[0]) === false && (delete astral['01']) === true &&
+        (delete astral['-0']) === true && (delete astral['1e0']) === true) +
+        ' / Symbol ' + (symbolRemoved && !Object.hasOwn(symbolic, symbol) &&
+        (delete astral[symbol]) === true && (delete (7)[symbol]) === true);
+} catch (error) { report(error); }
+async function run() {
+    let log = '';
+    let gets = 0;
+    const target = {};
+    Object.defineProperty(target, 'x', {
+        configurable: true, get: function() { gets++; return 5; }
+    });
+    const key = {};
+    key[Symbol.toPrimitive] = function() { log += 'C'; return 'x'; };
+    function base() { log += 'B'; return target; }
+    function property() { log += 'K'; return key; }
+    const result = delete (await Promise.resolve(base()))[await Promise.resolve(property())];
+    let evaluated = 0;
+    let converted = 0;
+    const nullKey = {};
+    nullKey[Symbol.toPrimitive] = function() { converted++; return 'x'; };
+    function nullProperty() { evaluated++; return nullKey; }
+    let nullish = false;
+    try {
+        delete (await Promise.resolve(null))[await Promise.resolve(nullProperty())];
+    } catch (error) { nullish = error.name === 'TypeError'; }
+    const kept = { x: 1 };
+    let rejected = false;
+    let finalized = false;
+    try {
+        delete (await Promise.resolve(kept))[await Promise.reject('stop')];
+    } catch (error) { rejected = error === 'stop'; }
+    finally { finalized = true; }
+    document.getElementById('async').textContent = 'ordem ' + log +
+        ' / delete ' + (result && gets === 0 && !Object.hasOwn(target, 'x')) +
+        ' / nullish ' + (nullish && evaluated === 1 && converted === 0) +
+        ' / rejection ' + (rejected && finalized && kept.x === 1);
+}
+function* remove() { return delete (yield 'base')[yield 'chave']; }
+try {
+    const target = { x: 1 };
+    const it = remove();
+    const a = it.next();
+    const b = it.next(target);
+    const c = it.next('x');
+    let conversions = 0;
+    const key = {};
+    key[Symbol.toPrimitive] = function() { conversions++; return 'x'; };
+    const nil = remove();
+    nil.next();
+    const nk = nil.next(null);
+    let nullish = false;
+    try { nil.next(key); } catch (error) { nullish = error.name === 'TypeError'; }
+    const kept = { x: 2 };
+    let finalized = false;
+    function* cancel() {
+        try { return delete (yield 'base')[yield 'chave']; }
+        finally { finalized = true; }
+    }
+    const pending = cancel();
+    pending.next();
+    pending.next(kept);
+    const stopped = pending.return('stop');
+    document.getElementById('generator').textContent = a.value + ',' + b.value +
+        ' / delete ' + (c.done && c.value === true && !Object.hasOwn(target, 'x')) +
+        ' / nullish ' + (nk.value === 'chave' && nullish && conversions === 0) +
+        ' / return ' + (stopped.done && stopped.value === 'stop' && finalized && kept.x === 2);
+} catch (error) { report(error); }
+run().then(function() {}, report);
+</script>
+</body>
+</html>
