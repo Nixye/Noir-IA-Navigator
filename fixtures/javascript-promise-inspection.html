@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Inspeção Promise</title></head>
+<body><h1>Consulta de propriedades Promise</h1><p id="result">Aguardando execução.</p>
+<script>
+const root = { Promise: Promise };
+const path = ['Promise', 'prototype'];
+let owner = root;
+let found = true;
+for (let i = 0; i < path.length; i++) {
+  if (!(path[i] in owner)) { found = false; break; }
+  owner = owner[path[i]];
+}
+const ready = found && owner === Promise.prototype && 'finally' in owner
+  && typeof owner.finally === 'function' && 'resolve' in Promise && 'all' in Promise
+  && !('missing' in Promise) && Promise.missing === undefined;
+let trace = '';
+Promise.resolve(7).finally(function () { trace += 'f'; }).then(function (value) {
+  document.getElementById('result').textContent = ready && value === 7 && trace === 'f'
+    ? 'Inspeção e microtasks Promise ativos.' : 'Falha na inspeção Promise.';
+});
+</script></body></html>

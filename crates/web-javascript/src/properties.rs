@@ -188,6 +188,11 @@ impl Runtime {
                     }
                 }
                 Value::Native(name) => {
+                    if name == "Promise"
+                        && crate::promises::constructor_property(property).is_some()
+                    {
+                        return Ok(true);
+                    }
                     if matches!(name, "Symbol" | "Number") {
                         current = self.intrinsic_constructor_storage(name)?;
                         continue;

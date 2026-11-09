@@ -4,6 +4,29 @@ use std::collections::{BTreeMap, VecDeque};
 
 const MAX_PROMISES: usize = 512;
 const MAX_JOBS: usize = 1024;
+#[cfg(test)]
+#[path = "promises/property_tests.rs"]
+mod property_tests;
+
+// A shared, metadata-only inventory keeps `in` and property reads consistent.
+// Looking up existence must not allocate the lazy prototype or invoke callbacks.
+pub(super) enum ConstructorProperty {
+    Prototype,
+    Method(&'static str),
+}
+pub(super) fn constructor_property(name: &str) -> Option<ConstructorProperty> {
+    Some(match name {
+        "prototype" => ConstructorProperty::Prototype,
+        "resolve" => ConstructorProperty::Method("Promise.resolve"),
+        "reject" => ConstructorProperty::Method("Promise.reject"),
+        "withResolvers" => ConstructorProperty::Method("Promise.withResolvers"),
+        "all" => ConstructorProperty::Method("Promise.all"),
+        "race" => ConstructorProperty::Method("Promise.race"),
+        "allSettled" => ConstructorProperty::Method("Promise.allSettled"),
+        "any" => ConstructorProperty::Method("Promise.any"),
+        _ => return None,
+    })
+}
 #[derive(Clone, Debug)]
 enum Status {
     Pending,
@@ -577,16 +600,10 @@ impl Runtime {
         if *object != Value::Native("Promise") {
             return Ok(None);
         }
-        Ok(Some(match property {
-            "prototype" => self.promise_prototype()?,
-            "resolve" => Value::Native("Promise.resolve"),
-            "reject" => Value::Native("Promise.reject"),
-            "withResolvers" => Value::Native("Promise.withResolvers"),
-            "all" => Value::Native("Promise.all"),
-            "race" => Value::Native("Promise.race"),
-            "allSettled" => Value::Native("Promise.allSettled"),
-            "any" => Value::Native("Promise.any"),
-            _ => return Ok(None),
+        Ok(Some(match constructor_property(property) {
+            Some(ConstructorProperty::Prototype) => self.promise_prototype()?,
+            Some(ConstructorProperty::Method(name)) => Value::Native(name),
+            None => return Ok(None),
         }))
     }
     pub(super) fn promise_call(

@@ -1,6 +1,38 @@
 use super::*;
 
 #[test]
+fn promise_inspection_fixture_reaches_existing_finally_and_updates_dom() {
+    let html = include_str!("../../../fixtures/javascript-promise-inspection.html");
+    let source = html
+        .split_once("<script>")
+        .unwrap()
+        .1
+        .split_once("</script>")
+        .unwrap()
+        .0;
+    let mut s = DocumentSession::new(web_html::parse(html).unwrap());
+    s.execute(source).unwrap();
+    assert!(
+        s.document
+            .text_content(0)
+            .contains("Inspeção e microtasks Promise ativos.")
+    );
+    assert_eq!(s.execute("('prototype' in window.Promise)&&window.Promise===Promise&&typeof Promise.prototype.finally==='function';").unwrap(),Value::Bool(true));
+}
+
+#[test]
+fn oversized_promise_inspection_rolls_back_dom_globals_and_pending_jobs() {
+    let mut s = DocumentSession::new(web_html::parse("<p id=out>safe</p>").unwrap());
+    s.execute("var stable=1;").unwrap();
+    let error=s.execute("stable=2;document.getElementById('out').textContent='bad';queueMicrotask(function(){document.getElementById('out').textContent='late';});'x'.repeat(1025) in Promise;").unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Resource);
+    assert!(s.scripts_disabled);
+    assert_eq!(s.runtime.global_value("stable"), Some(Value::Number(1.)));
+    assert!(s.document.text_content(0).contains("safe"));
+    assert!(!s.document.text_content(0).contains("late"));
+}
+
+#[test]
 fn number_descriptor_fixture_updates_dom_and_preserves_constant_flags() {
     let html = include_str!("../../../fixtures/javascript-number-descriptors.html");
     let source = html
