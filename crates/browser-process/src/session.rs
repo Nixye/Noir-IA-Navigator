@@ -42,6 +42,7 @@ pub struct RendererSession {
     storage_access: browser_ipc::SessionStorageAccess,
     storage_checkpoint: browser_ipc::SessionStorageSnapshot,
     images: HashSet<String>,
+    scripts: browser_core::DynamicScriptBroker,
     _slot: SessionSlot,
 }
 
@@ -73,6 +74,7 @@ impl RendererSession {
             viewport,
         };
         validate_request(&request)?;
+        let scripts = browser_core::DynamicScriptBroker::new(&request.document.url, executable)?;
         let slot = SessionSlot::acquire()?;
         let (child, stdin, stdout): (Box<dyn ManagedChild + Send>, Input, Output) =
             if is_remote(&request.document.url) {
@@ -131,6 +133,7 @@ impl RendererSession {
             storage_access: request.session_storage.access,
             storage_checkpoint: request.session_storage.entries.clone(),
             images,
+            scripts,
             _slot: slot,
         };
         let page = session.exchange(SessionRequest::Begin(request), 1)?;
@@ -232,7 +235,53 @@ impl RendererSession {
         )
     }
 
-    fn exchange(&mut self, request: SessionRequest, expected: u64) -> Result<RenderedPage, String> {
+    fn exchange(
+        &mut self,
+        mut request: SessionRequest,
+        mut expected: u64,
+    ) -> Result<RenderedPage, String> {
+        let viewport = request_viewport(&request);
+        let mut remaining = TIMEOUT;
+        let result = (|| {
+            loop {
+                if remaining.is_zero() {
+                    return Err("Session operation exhausted its renderer deadline".into());
+                }
+                let started = Instant::now();
+                let (page, pending) = self.exchange_once(request, expected, remaining)?;
+                remaining = remaining.saturating_sub(started.elapsed());
+                if pending.is_empty() {
+                    return Ok(page);
+                }
+                // Identity, page, storage and all source requests were validated
+                // together before crossing back into the privileged broker.
+                let scripts = self.scripts.resolve(&pending)?;
+                expected = self.next_id;
+                self.next_id = self
+                    .next_id
+                    .checked_add(1)
+                    .ok_or("Session operation limit exceeded")?;
+                request = SessionRequest::Scripts {
+                    id: expected,
+                    scripts,
+                    viewport,
+                };
+            }
+        })();
+        if result.is_err() {
+            self.child.terminate();
+            self.stdin = None;
+            self.stdout = None;
+        }
+        result
+    }
+
+    fn exchange_once(
+        &mut self,
+        request: SessionRequest,
+        expected: u64,
+        timeout: std::time::Duration,
+    ) -> Result<(RenderedPage, Vec<browser_ipc::DynamicScriptRequest>), String> {
         let mut stdin = self
             .stdin
             .take()
@@ -250,6 +299,7 @@ impl RendererSession {
         });
         std::thread::spawn(move || {
             let result = read_message::<_, RenderResponse>(&mut stdout)
+                .map(Box::new)
                 .map_err(|e| format!("Session IPC read: {e}"));
             let _ = sender.send(Transaction::Read(stdout, result));
         });
@@ -258,7 +308,7 @@ impl RendererSession {
         let result = (|| {
             for _ in 0..2 {
                 match receiver
-                    .recv_timeout(TIMEOUT.saturating_sub(started.elapsed()))
+                    .recv_timeout(timeout.saturating_sub(started.elapsed()))
                     .map_err(|_| "Sessão de renderização excedeu o prazo de 10 segundos")?
                 {
                     Transaction::Written(stdin, result) => {
@@ -272,13 +322,16 @@ impl RendererSession {
                 }
             }
             let response = response.ok_or("Sessão sem resposta")?;
-            accept_response(
-                response,
+            self.scripts.validate_requests(&response.pending_scripts)?;
+            let pending = response.pending_scripts.clone();
+            let page = accept_response(
+                *response,
                 expected,
                 &self.images,
                 self.storage_access,
                 &mut self.storage_checkpoint,
-            )
+            )?;
+            Ok((page, pending))
         })();
         if result.is_err() {
             self.child.terminate();
@@ -308,6 +361,7 @@ fn accept_response(
     }
     let page = response.result?;
     validate_page(&page, images)?;
+    browser_ipc::validate_dynamic_script_requests(&response.pending_scripts)?;
     browser_ipc::validate_session_storage_entries(&response.session_storage)?;
     if access != browser_ipc::SessionStorageAccess::ReadWrite
         && !response.session_storage.is_empty()
@@ -319,7 +373,29 @@ fn accept_response(
 }
 enum Transaction {
     Written(Input, Result<(), String>),
-    Read(Output, Result<RenderResponse, String>),
+    Read(Output, Result<Box<RenderResponse>, String>),
+}
+
+fn request_viewport(request: &SessionRequest) -> Viewport {
+    match request {
+        SessionRequest::Begin(request) => request.viewport,
+        SessionRequest::Scripts { viewport, .. }
+        | SessionRequest::AnimationFrame { viewport, .. }
+        | SessionRequest::Reflow { viewport, .. }
+        | SessionRequest::Event { viewport, .. }
+        | SessionRequest::Tick { viewport, .. } => *viewport,
+    }
+}
+
+fn request_id(request: &SessionRequest) -> u64 {
+    match request {
+        SessionRequest::Begin(request) => request.id,
+        SessionRequest::Scripts { id, .. }
+        | SessionRequest::AnimationFrame { id, .. }
+        | SessionRequest::Reflow { id, .. }
+        | SessionRequest::Event { id, .. }
+        | SessionRequest::Tick { id, .. } => *id,
+    }
 }
 
 fn accept_animation_frame_pulse(
@@ -391,12 +467,18 @@ pub fn run_session_worker() -> Result<(), String> {
     let mut input = std::io::stdin().lock();
     let mut output = std::io::stdout().lock();
     let mut engine: Option<web_renderer::RenderSession> = None;
+    let mut last_id = 0;
     loop {
         let request: SessionRequest = match read_message(&mut input) {
             Ok(request) => request,
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
             Err(e) => return Err(format!("Session IPC request: {e}")),
         };
+        let incoming_id = request_id(&request);
+        if incoming_id <= last_id {
+            return Err("Session request identity must be fresh and nonzero".into());
+        }
+        last_id = incoming_id;
         let (id, result) = match request {
             SessionRequest::Begin(request) => {
                 let id = request.id;
@@ -408,16 +490,33 @@ pub fn run_session_worker() -> Result<(), String> {
                         {
                             return Err("Documento remoto exige AppContainer".into());
                         }
-                        let mut session = web_renderer::RenderSession::new_with_storage(
+                        let mut session = web_renderer::RenderSession::new_with_services(
                             &request.document,
                             request.viewport,
                             request.session_storage,
+                            std::sync::Arc::new(crate::platform::SystemServices::new()?),
                         )?;
                         let page = session.render(request.viewport)?;
                         engine = Some(session);
                         Ok(page)
                     })
                 };
+                (id, result)
+            }
+            SessionRequest::Scripts {
+                id,
+                scripts,
+                viewport,
+            } => {
+                let result = validate_viewport(viewport)
+                    .and_then(|()| browser_ipc::validate_dynamic_script_responses(&scripts))
+                    .and_then(|()| {
+                        let session = engine
+                            .as_mut()
+                            .ok_or_else(|| "Begin required before Scripts".to_string())?;
+                        session.complete_scripts(&scripts)?;
+                        session.render(viewport)
+                    });
                 (id, result)
             }
             SessionRequest::AnimationFrame {
@@ -490,6 +589,13 @@ pub fn run_session_worker() -> Result<(), String> {
         write_message(
             &mut output,
             &RenderResponse {
+                pending_scripts: if failed {
+                    vec![]
+                } else {
+                    engine
+                        .as_mut()
+                        .map_or_else(Vec::new, |session| session.take_script_requests())
+                },
                 session_storage: engine
                     .as_ref()
                     .map_or_else(Vec::new, |session| session.session_storage_snapshot()),
@@ -562,12 +668,25 @@ mod tests {
         let old = vec![("key".into(), "confirmed".into())];
         let new = vec![("key".into(), "next".into())];
         let response = RenderResponse {
+            pending_scripts: vec![],
             protocol_version: PROTOCOL_VERSION,
             id: 2,
             result: Ok(page),
             session_storage: new.clone(),
         };
         let mut invalid = Vec::new();
+        let mut r = response.clone();
+        r.pending_scripts.push(browser_ipc::DynamicScriptRequest {
+            id: 0,
+            src: "app.js".into(),
+        });
+        invalid.push(r);
+        let mut r = response.clone();
+        r.pending_scripts.push(browser_ipc::DynamicScriptRequest {
+            id: 1,
+            src: "x".repeat(browser_ipc::MAX_DYNAMIC_SCRIPT_SRC_BYTES + 1),
+        });
+        invalid.push(r);
         let mut r = response.clone();
         r.protocol_version -= 1;
         invalid.push(r);
@@ -634,6 +753,7 @@ mod tests {
         // An in-memory transport regression, not a subprocess termination test.
         let old = vec![("key".into(), "confirmed".into())];
         let response = RenderResponse {
+            pending_scripts: vec![],
             protocol_version: PROTOCOL_VERSION,
             id: 2,
             session_storage: (0..=browser_ipc::SESSION_STORAGE_MAX_ENTRIES)
@@ -691,6 +811,7 @@ mod tests {
             let mut p = page.clone();
             p.items.push(item);
             let response = RenderResponse {
+                pending_scripts: vec![],
                 protocol_version: PROTOCOL_VERSION,
                 id: 2,
                 session_storage: vec![],

@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Scripts dinâmicos pelo broker</title>
+<h1>Scripts dinâmicos reais</h1>
+<p>Abra esta fixture no desktop. O CLI one-shot não busca scripts adicionais.</p>
+<p id="status">Aguardando carregamento.</p>
+<p id="errors">Nenhuma falha observada.</p>
+<script>
+var order='';
+var first=document.createElement('script');
+first.async=false;
+first.src='first.js';
+first.onload=function(){
+    order+='|first-load';
+    var second=document.createElement('script');
+    second.src='second.js';
+    document.head.appendChild(second);
+};
+first.onerror=function(){document.getElementById('status').textContent='Primeira carga falhou.';};
+document.head.appendChild(first);
+</script>

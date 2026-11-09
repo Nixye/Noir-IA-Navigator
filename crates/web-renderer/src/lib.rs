@@ -3,6 +3,7 @@ use browser_ipc::{DocumentInput, ImageAsset, RenderMetrics, RenderedPage, Viewpo
 use std::sync::Arc;
 use std::time::Instant;
 mod geometry;
+pub use web_bindings::{PlatformError, PlatformServices};
 
 pub fn render(document: &DocumentInput, viewport: Viewport) -> Result<RenderedPage, String> {
     RenderSession::new_with_viewport(document, viewport)?.render(viewport)
@@ -39,6 +40,24 @@ impl RenderSession {
         viewport: Viewport,
         seed: browser_ipc::SessionStorageSeed,
     ) -> Result<Self, String> {
+        Self::new_with_optional_services(document, viewport, seed, None)
+    }
+
+    pub fn new_with_services(
+        document: &DocumentInput,
+        viewport: Viewport,
+        seed: browser_ipc::SessionStorageSeed,
+        services: Arc<dyn PlatformServices>,
+    ) -> Result<Self, String> {
+        Self::new_with_optional_services(document, viewport, seed, Some(services))
+    }
+
+    fn new_with_optional_services(
+        document: &DocumentInput,
+        viewport: Viewport,
+        seed: browser_ipc::SessionStorageSeed,
+        services: Option<Arc<dyn PlatformServices>>,
+    ) -> Result<Self, String> {
         browser_ipc::validate_session_storage_seed(&seed)?;
         browser_ipc::validate_audio_metadata(&document.audio_metadata)?;
         validate_images(document)?;
@@ -47,6 +66,11 @@ impl RenderSession {
         let dom = web_html::parse(&document.html)?;
         let parse_us = micros(start.elapsed());
         let mut session = web_bindings::DocumentSession::new(dom);
+        if let Some(services) = services {
+            session
+                .set_platform_services(services)
+                .map_err(|error| error.to_string())?;
+        }
         session
             .set_document_url(&document.url)
             .map_err(|error| error.to_string())?;
@@ -78,6 +102,27 @@ impl RenderSession {
 
     pub fn session_storage_snapshot(&self) -> browser_ipc::SessionStorageSnapshot {
         self.session.session_storage_snapshot()
+    }
+
+    pub fn take_script_requests(&mut self) -> Vec<browser_ipc::DynamicScriptRequest> {
+        self.session.take_script_requests()
+    }
+
+    pub fn complete_scripts(
+        &mut self,
+        responses: &[browser_ipc::DynamicScriptResponse],
+    ) -> Result<(), String> {
+        let report = self
+            .session
+            .complete_scripts(responses)
+            .map_err(|error| error.to_string())?;
+        self.warnings.extend(
+            report
+                .warnings
+                .into_iter()
+                .take(32usize.saturating_sub(self.warnings.len())),
+        );
+        Ok(())
     }
 
     pub fn render(&mut self, viewport: Viewport) -> Result<RenderedPage, String> {

@@ -6,8 +6,10 @@ license.workspace = true
 
 [dependencies]
 browser-ipc.workspace = true
+browser-core.workspace = true
 web-renderer.workspace = true
 memory-stats = "1.2"
+getrandom = "0.3.4"
 security-sandbox = { path = "../security-sandbox" }
 url.workspace = true
 

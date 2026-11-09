@@ -16,6 +16,7 @@ const TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_COORDINATE: f32 = 1_000_000.0;
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
+mod platform;
 mod session;
 mod session_storage;
 pub use session::{RendererSession, run_session_worker};
@@ -28,6 +29,7 @@ pub fn run_worker() -> Result<(), String> {
     let request: RenderRequest =
         read_message(&mut std::io::stdin().lock()).map_err(|e| format!("IPC request: {e}"))?;
     let mut session_storage = Vec::new();
+    let mut pending_scripts = Vec::new();
     let result = validate_request(&request)
         .and_then(|()| {
             if is_remote(&request.document.url) && !security_sandbox::is_appcontainer() {
@@ -37,13 +39,15 @@ pub fn run_worker() -> Result<(), String> {
             }
         })
         .and_then(|()| {
-            let mut engine = web_renderer::RenderSession::new_with_storage(
+            let mut engine = web_renderer::RenderSession::new_with_services(
                 &request.document,
                 request.viewport,
                 request.session_storage.clone(),
+                std::sync::Arc::new(platform::SystemServices::new()?),
             )?;
             let page = engine.render(request.viewport)?;
             session_storage = engine.session_storage_snapshot();
+            pending_scripts = engine.take_script_requests();
             Ok(page)
         });
     let result = result.map(|mut page| {
@@ -53,6 +57,7 @@ pub fn run_worker() -> Result<(), String> {
         page
     });
     let response = RenderResponse {
+        pending_scripts,
         session_storage,
         protocol_version: PROTOCOL_VERSION,
         id: request.id,
@@ -179,6 +184,7 @@ fn exchange_pipes<
     });
     let reader = std::thread::spawn(move || {
         let result = read_message::<_, RenderResponse>(&mut { stdout })
+            .map(Box::new)
             .map_err(|e| format!("IPC read: {e}"));
         let _ = sender.send(PipeResult::Read(result));
     });
@@ -225,8 +231,15 @@ fn exchange_pipes<
     if response.protocol_version != PROTOCOL_VERSION || response.id != expected_id {
         return Err("Versão ou identificação inválida na resposta do renderizador.".to_owned());
     }
-    let page = response.result?;
+    let mut page = response.result?;
     validate_page(&page, &image_ids)?;
+    browser_ipc::validate_dynamic_script_requests(&response.pending_scripts)?;
+    if !response.pending_scripts.is_empty() {
+        if page.warnings.len() == browser_ipc::MAX_PAGE_WARNINGS {
+            page.warnings.pop();
+        }
+        page.warnings.push("Dynamic external scripts require a retained renderer session; one-shot rendering performs no additional I/O".into());
+    }
     browser_ipc::validate_session_storage_entries(&response.session_storage)?;
     if storage_access != browser_ipc::SessionStorageAccess::ReadWrite
         && !response.session_storage.is_empty()
@@ -238,7 +251,7 @@ fn exchange_pipes<
 
 enum PipeResult {
     Write(Result<(), String>),
-    Read(Result<RenderResponse, String>),
+    Read(Result<Box<RenderResponse>, String>),
 }
 
 fn harden_worker() -> Result<(), String> {

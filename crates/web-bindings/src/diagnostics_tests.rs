@@ -230,7 +230,8 @@ fn inline_module_and_module_link_errors_do_not_fabricate_runtime_locations() {
 
 #[test]
 fn unsupported_dom_src_identifies_receiver_and_type_without_value_or_coercion() {
-    for tag in ["img", "script", "iframe"] {
+    // script.src is now a supported, brokered classic-script property.
+    for tag in ["img", "iframe"] {
         let mut s = session("");
         let error = s.execute(&format!(
             "var calls=0;var receiver=document.createElement('{tag}');var value={{toString:function(){{calls++;return 'SECRET_VALUE';}}}};Object.defineProperty(value,'value',{{get:function(){{calls++;return 'SECRET_GETTER';}}}});receiver.src=value;"

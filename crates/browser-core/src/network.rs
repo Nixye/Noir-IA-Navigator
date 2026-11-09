@@ -236,6 +236,32 @@ fn decode_text(resource: &Resource) -> String {
     text.into_owned()
 }
 
+/// Reuse the ordinary public, pinned-DNS, redirect, TLS and MIME policies.
+/// Only a broker constructed after sandbox verification may call this path.
+pub(super) fn load_dynamic_script(
+    document: &Url,
+    src: &str,
+    limit: usize,
+    already_spent: Duration,
+) -> Result<String, String> {
+    let url = document
+        .join(src)
+        .map_err(|_| "Invalid dynamic script URL")?;
+    validate_subresource(document, &url)?;
+    let started = Instant::now()
+        .checked_sub(already_spent)
+        .ok_or("Invalid network deadline")?;
+    let resource = fetch(url, limit, started, Some(document))?;
+    if !resource.metadata.is_javascript() {
+        return Err("Dynamic script requires a JavaScript MIME type".into());
+    }
+    let source = decode_text(&resource);
+    if source.len() > limit {
+        return Err("Decoded dynamic script exceeds source budget".into());
+    }
+    Ok(source)
+}
+
 pub(super) fn load(input: &str) -> Result<DocumentInput, String> {
     security_sandbox::ensure_verified(&std::env::current_exe().map_err(|e| e.to_string())?)?;
     let started = Instant::now();

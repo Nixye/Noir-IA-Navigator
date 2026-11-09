@@ -34,7 +34,7 @@ pub(super) fn native_length(name: &str) -> usize {
         | "WebAssembly.CompileError"
         | "WebAssembly.LinkError"
         | "WebAssembly.RuntimeError" => 1,
-        "Function.prototype" | "Array.pop" => 0,
+        "Function.prototype" | "Array.pop" | "Performance.now" => 0,
         "Int8Array" | "Uint8Array" | "Uint8ClampedArray" | "Int16Array" | "Uint16Array"
         | "Int32Array" | "Uint32Array" | "Float32Array" | "Float64Array" | "BigInt64Array"
         | "BigUint64Array" => 3,

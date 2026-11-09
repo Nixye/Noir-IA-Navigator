@@ -1,4 +1,4 @@
-//! Bounded VM Math namespace. random is absent: no authorized entropy source exists.
+//! Bounded VM Math namespace. random consumes only host-supplied entropy.
 //! Transcendentals use Rust f64 operations, without universal rounding guarantees.
 use crate::{Host, JsError, Runtime, Value, descriptors::PropertyMetadata, to_uint32};
 use std::collections::BTreeMap;
@@ -30,6 +30,7 @@ const METHODS: &[(&str, &str)] = &[
     ("max", "Math.max"),
     ("min", "Math.min"),
     ("pow", "Math.pow"),
+    ("random", "Math.random"),
     ("round", "Math.round"),
     ("sign", "Math.sign"),
     ("sin", "Math.sin"),
@@ -45,13 +46,13 @@ pub(super) fn native_length(name: &str) -> Option<usize> {
     if !METHODS.iter().any(|(key, _)| *key == method) {
         return None;
     }
-    Some(
-        if matches!(method, "atan2" | "hypot" | "imul" | "max" | "min" | "pow") {
-            2
-        } else {
-            1
-        },
-    )
+    Some(if method == "random" {
+        0
+    } else if matches!(method, "atan2" | "hypot" | "imul" | "max" | "min" | "pow") {
+        2
+    } else {
+        1
+    })
 }
 
 impl Runtime {
@@ -152,6 +153,14 @@ impl Runtime {
             return Err(self.property_type_error("Math methods are not constructors"));
         }
         let method = &name[5..];
+        if method == "random" {
+            // The upper 53 bits are exactly representable in f64. Dividing by
+            // 2^53 produces [0, 1), including zero but never rounding to one.
+            // Arguments are ignored without coercion and there is no fallback
+            // sequence when the trusted entropy provider fails.
+            let bits = host.random_u64()? >> 11;
+            return Ok(Some(Value::Number(bits as f64 / 9_007_199_254_740_992.0)));
+        }
         if matches!(method, "min" | "max" | "hypot") {
             // All conversions happen in order, even after NaN or Infinity.
             // Accumulators use constant space and each conversion charges the VM budget.
@@ -334,7 +343,7 @@ mod tests {
     fn namespace_descriptors_detached_calls_and_arities() {
         for source in [
             "typeof Math==='object'&&Math===Math&&Object.getPrototypeOf(Math)===Object.prototype&&Object.keys(Math).length===0;",
-            "Math[Symbol.toStringTag]==='Math'&&typeof Math.random==='undefined';",
+            "Math[Symbol.toStringTag]==='Math'&&typeof Math.random==='function'&&Math.random.length===0;",
             "const d=Object.getOwnPropertyDescriptor(Math,'PI');d.value===Math.PI&&!d.writable&&!d.configurable&&!d.enumerable;",
             "const d=Object.getOwnPropertyDescriptor(Math,'abs');d.writable&&d.configurable&&!d.enumerable;",
             "const d=Object.getOwnPropertyDescriptor(Math,Symbol.toStringTag);!d.writable&&d.configurable&&!d.enumerable;",
@@ -464,5 +473,97 @@ mod tests {
             )
             .unwrap();
         assert_eq!(result, Value::Bool(true));
+    }
+}
+
+#[cfg(test)]
+mod random_tests {
+    use crate::{ErrorKind, Host, JsError, Limits, Runtime, Value};
+    use std::collections::VecDeque;
+
+    struct Entropy {
+        values: VecDeque<u64>,
+        calls: usize,
+    }
+    impl Host for Entropy {
+        fn random_u64(&mut self) -> Result<u64, JsError> {
+            self.calls += 1;
+            self.values
+                .pop_front()
+                .ok_or_else(|| JsError::runtime("test entropy exhausted"))
+        }
+        fn global(&mut self, _: &str) -> Option<Value> {
+            None
+        }
+        fn get(&mut self, _: u64, _: &str) -> Result<Value, JsError> {
+            Err(JsError::runtime("No host"))
+        }
+        fn set(&mut self, _: u64, _: &str, _: Value) -> Result<(), JsError> {
+            Err(JsError::runtime("No host"))
+        }
+        fn call(&mut self, _: u64, _: &str, _: &[Value]) -> Result<Value, JsError> {
+            Err(JsError::runtime("No host"))
+        }
+    }
+    fn entropy(values: &[u64]) -> Entropy {
+        Entropy {
+            values: values.iter().copied().collect(),
+            calls: 0,
+        }
+    }
+
+    #[test]
+    fn random_maps_exact_53_bit_boundaries_without_ever_returning_one() {
+        let mut host = entropy(&[0, 2047, 2048, 1 << 63, u64::MAX]);
+        assert_eq!(Runtime::default().execute(
+            "Math.random()===0&&Math.random()===0&&Math.random()===1/9007199254740992&&Math.random()===0.5&&Math.random()===0.9999999999999999;", &mut host).unwrap(), Value::Bool(true));
+        assert_eq!(host.calls, 5);
+    }
+
+    #[test]
+    fn random_is_detachable_ignores_coercions_and_is_not_a_constructor() {
+        let mut host = entropy(&[0, 0, 0]);
+        assert_eq!(Runtime::default().execute(
+            "const random=Math.random;const bad={valueOf:function(){throw 99;}};let rejected=false;try{new random();}catch(e){rejected=e.name==='TypeError';}const d=Object.getOwnPropertyDescriptor(Math,'random');rejected&&random.length===0&&random.name==='random'&&d.value===random&&d.writable&&!d.enumerable&&d.configurable&&random(bad)===0&&random.call({},Symbol())===0&&Reflect.apply(random,null,[1n])===0;", &mut host).unwrap(), Value::Bool(true));
+        assert_eq!(host.calls, 3);
+    }
+
+    #[test]
+    fn random_propagates_source_failure_and_does_not_fabricate_a_value() {
+        let mut host = entropy(&[]);
+        let error = Runtime::default()
+            .execute("Math.random();", &mut host)
+            .unwrap_err();
+        assert_eq!(error.message, "test entropy exhausted");
+        assert_eq!(host.calls, 1);
+    }
+
+    #[test]
+    fn rollback_cannot_rewind_entropy_and_loops_remain_budgeted() {
+        let mut host = entropy(&[0, 1 << 63]);
+        let mut runtime = Runtime::default();
+        let checkpoint = runtime.clone();
+        assert_eq!(
+            runtime.execute("Math.random();", &mut host).unwrap(),
+            Value::Number(0.0)
+        );
+        runtime.rollback_to(checkpoint);
+        assert_eq!(
+            runtime.execute("Math.random();", &mut host).unwrap(),
+            Value::Number(0.5)
+        );
+        let mut host = entropy(&[0; 100]);
+        let mut runtime = Runtime::new(Limits {
+            instructions: 100,
+            ..Limits::default()
+        });
+        assert_eq!(
+            runtime
+                .execute("while(true){Math.random();}", &mut host)
+                .unwrap_err()
+                .kind,
+            ErrorKind::Resource
+        );
+        assert!(host.calls > 0 && host.calls < 100);
     }
 }

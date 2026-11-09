@@ -48,7 +48,7 @@ impl Runtime {
         object: &Value,
         key: u64,
     ) -> Result<Option<Descriptor>, JsError> {
-        let id = self.heap_owner(object)?;
+        let id = self.heap_owner_for(object, "symbol-descriptor")?;
         Ok(self
             .symbol_properties
             .get(&id)
@@ -74,7 +74,7 @@ impl Runtime {
         key: u64,
         definition: Definition,
     ) -> Result<(), JsError> {
-        let id = self.heap_owner(object)?;
+        let id = self.heap_owner_for(object, "define-symbol-property")?;
         let current = self.symbol_descriptor(object, key)?;
         let changes_kind = current.as_ref().is_some_and(|current| {
             if definition.getter.is_some() || definition.setter.is_some() {
@@ -187,7 +187,7 @@ impl Runtime {
         freeze: bool,
         host: &mut impl Host,
     ) -> Result<(), JsError> {
-        let id = self.descriptor_owner(object)?;
+        let id = self.descriptor_owner(object, if freeze { "freeze" } else { "seal" })?;
         if self.stdlib_own_keys(object).is_some() {
             return Err(
                 self.property_type_error("Integrity levels for typed arrays are not implemented")
@@ -244,7 +244,9 @@ impl Runtime {
     ) -> Result<bool, JsError> {
         if matches!(object, Value::Host(_) | Value::Native(_)) && *object != Value::Native("Symbol")
         {
-            return Err(self.property_type_error(
+            return Err(self.exotic_descriptor_error(
+                object,
+                if freeze { "isFrozen" } else { "isSealed" },
                 "Integrity inspection of Host/native objects is not implemented",
             ));
         }
@@ -254,7 +256,7 @@ impl Runtime {
         ) {
             return Ok(true);
         }
-        let id = self.descriptor_owner(object)?;
+        let id = self.descriptor_owner(object, if freeze { "isFrozen" } else { "isSealed" })?;
         if !self.reflection.non_extensible.contains(&id) {
             return Ok(false);
         }
@@ -312,9 +314,34 @@ impl Runtime {
         Ok(true)
     }
     pub(super) fn heap_owner(&mut self, value: &Value) -> Result<usize, JsError> {
+        self.heap_owner_for(value, "own-properties")
+    }
+
+    // Only VM tags and trusted static native names enter this diagnostic. Never
+    // inspect target properties or format a page value (including symbol labels).
+    // JsError applies its existing per-context/count/total byte bounds.
+    fn exotic_descriptor_error(
+        &mut self,
+        value: &Value,
+        operation: &str,
+        message: &str,
+    ) -> JsError {
+        let mut error = self.property_type_error(message);
+        let target = match value {
+            Value::Native(name) => format!("native={}", name.chars().take(64).collect::<String>()),
+            Value::Host(handle) => format!("host={handle}"),
+            _ => return error,
+        };
+        error.add_diagnostic_context(&format!("descriptor operation={operation} {target}"));
+        error
+    }
+
+    fn heap_owner_for(&mut self, value: &Value, operation: &str) -> Result<usize, JsError> {
         match value {
             Value::Native("Symbol") => self.symbol_constructor_owner(),
-            Value::Native(_) | Value::Host(_) => Err(self.property_type_error(
+            Value::Native(_) | Value::Host(_) => Err(self.exotic_descriptor_error(
+                value,
+                operation,
                 "Own properties of this Host/native object are not implemented",
             )),
             Value::Object(id) if matches!(self.heap.get(*id), Some(Heap::Object(_))) => Ok(*id),
@@ -325,7 +352,7 @@ impl Runtime {
             )),
         }
     }
-    fn descriptor_owner(&mut self, value: &Value) -> Result<usize, JsError> {
+    fn descriptor_owner(&mut self, value: &Value, operation: &str) -> Result<usize, JsError> {
         match value {
             Value::Native("Symbol") => self.symbol_constructor_owner(),
             Value::Object(id) => match self.heap.get(*id) {
@@ -337,7 +364,9 @@ impl Runtime {
             },
             Value::Array(id) if matches!(self.heap.get(*id), Some(Heap::Array(_))) => Ok(*id),
             Value::Function(id) if matches!(self.heap.get(*id), Some(Heap::Function(_))) => Ok(*id),
-            Value::Host(_) | Value::Native(_) => Err(self.property_type_error(
+            Value::Host(_) | Value::Native(_) => Err(self.exotic_descriptor_error(
+                value,
+                operation,
                 "Host/native exotic descriptors are not implemented (except Symbol)",
             )),
             _ => Err(self.property_type_error("Descriptors require an object, array or function")),
@@ -410,7 +439,7 @@ impl Runtime {
         if *object == Value::Native("Function.prototype") {
             return self.function_prototype_descriptor(property);
         }
-        let id = self.descriptor_owner(object)?;
+        let id = self.descriptor_owner(object, "getOwnPropertyDescriptor")?;
         if let Some(present) = self.stdlib_own_index(object, property) {
             return if present {
                 Ok(Some(Descriptor {
@@ -614,7 +643,7 @@ impl Runtime {
         value: Value,
         host: &mut impl Host,
     ) -> Result<Definition, JsError> {
-        self.descriptor_owner(&value)?;
+        self.descriptor_owner(&value, "read-descriptor-definition")?;
         let mut result = Definition::default();
         for field in [
             "enumerable",
@@ -668,7 +697,7 @@ impl Runtime {
         definition: Definition,
         host: &mut impl Host,
     ) -> Result<(), JsError> {
-        let id = self.descriptor_owner(object)?;
+        let id = self.descriptor_owner(object, "defineProperty")?;
         if let Some(result) = self.stdlib_define_index(object, property, &definition, host)? {
             return if result {
                 Ok(())
@@ -823,7 +852,7 @@ impl Runtime {
         definition: Definition,
         host: &mut impl Host,
     ) -> Result<bool, JsError> {
-        let owner = self.descriptor_owner(object)?;
+        let owner = self.descriptor_owner(object, "Reflect.defineProperty")?;
         let name = if matches!(key, Value::Symbol(..)) {
             None
         } else {
@@ -898,7 +927,7 @@ impl Runtime {
         Ok(true)
     }
     pub(super) fn own_names(&mut self, object: &Value) -> Result<Vec<String>, JsError> {
-        let id = self.heap_owner(object)?;
+        let id = self.heap_owner_for(object, "own-property-names")?;
         let scan_work = match &self.heap[id] {
             Heap::Vacant => return Err(JsError::runtime("Collected property owner")),
             Heap::Object(object) => object.properties.len(),
@@ -1008,9 +1037,9 @@ impl Runtime {
         descriptors: Value,
         host: &mut impl Host,
     ) -> Result<(), JsError> {
-        self.descriptor_owner(object)?;
+        self.descriptor_owner(object, "defineProperties")?;
         let names = self.own_names(&descriptors)?;
-        let owner = self.descriptor_owner(&descriptors)?;
+        let owner = self.descriptor_owner(&descriptors, "read-descriptor-map")?;
         let mut definitions = Vec::new();
         for key in names {
             if !self.has_own_property(&descriptors, &key)? || !self.own_enumerable(owner, &key) {
@@ -1056,7 +1085,7 @@ impl Runtime {
     ) -> Result<Value, JsError> {
         let object = args.first().cloned().unwrap_or(Value::Undefined);
         if name == "Object.getOwnPropertySymbols" {
-            let owner = self.heap_owner(&object)?;
+            let owner = self.heap_owner_for(&object, name)?;
             let mut keys = self.symbol_order.get(&owner).cloned().unwrap_or_default();
             if let Some(properties) = self.symbol_properties.get(&owner) {
                 for key in properties.keys() {
@@ -1094,7 +1123,7 @@ impl Runtime {
             return Ok(result);
         }
         if name == "Object.defineProperty" {
-            self.descriptor_owner(&object)?;
+            self.descriptor_owner(&object, name)?;
             let key =
                 self.coerce_property_key(args.get(1).cloned().unwrap_or(Value::Undefined), host)?;
             if let Value::Symbol(key, _) = key {
@@ -1138,7 +1167,7 @@ impl Runtime {
         }
         let names = self.own_names(&object)?;
         if name == "Object.getOwnPropertyDescriptors" {
-            let owner = self.heap_owner(&object)?;
+            let owner = self.heap_owner_for(&object, name)?;
             let mut symbols = self.symbol_order.get(&owner).cloned().unwrap_or_default();
             if let Some(properties) = self.symbol_properties.get(&owner) {
                 for key in properties.keys() {
@@ -1179,7 +1208,7 @@ impl Runtime {
             }
             return Ok(result);
         }
-        let owner = self.heap_owner(&object)?;
+        let owner = self.heap_owner_for(&object, name)?;
         let mut result = Vec::new();
         for key in names {
             if !self.has_own_property(&object, &key)? {
@@ -1226,5 +1255,146 @@ impl Runtime {
             properties.insert("writable".into(), Value::Bool(descriptor.metadata.writable));
         }
         self.object(properties, None)
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct InertHost {
+        accesses: usize,
+    }
+    impl Host for InertHost {
+        fn global(&mut self, name: &str) -> Option<Value> {
+            (name == "opaque").then_some(Value::Host(42))
+        }
+        fn get(&mut self, _: u64, _: &str) -> Result<Value, JsError> {
+            self.accesses += 1;
+            Ok(Value::Undefined)
+        }
+        fn set(&mut self, _: u64, _: &str, _: Value) -> Result<(), JsError> {
+            self.accesses += 1;
+            Ok(())
+        }
+        fn call(&mut self, _: u64, _: &str, _: &[Value]) -> Result<Value, JsError> {
+            self.accesses += 1;
+            Ok(Value::Undefined)
+        }
+    }
+
+    #[test]
+    fn native_descriptor_rejection_survives_secondary_reporter_failure() {
+        let mut host = InertHost::default();
+        let error = Runtime::default()
+            .execute(
+                "const reporter={};try{Object.defineProperty(Object,'private-key',{value:'private-value'});}catch(e){reporter._DumpException(e);}",
+                &mut host,
+            )
+            .unwrap_err();
+        assert_eq!(error.message, "Value is not callable (_DumpException)");
+        let previous = &error.previous_exceptions()[0];
+        assert_eq!(
+            previous.message,
+            "Host/native exotic descriptors are not implemented (except Symbol)"
+        );
+        assert_eq!(
+            previous.contexts,
+            ["descriptor operation=Object.defineProperty native=Object"]
+        );
+        assert!(!error.to_string().contains("private-"));
+        assert_eq!(host.accesses, 0);
+    }
+
+    #[test]
+    fn host_and_other_descriptor_operations_identify_the_actual_receiver() {
+        for (source, operation, target) in [
+            (
+                "Object.getOwnPropertyDescriptor(opaque,'secret');",
+                "getOwnPropertyDescriptor",
+                "host=42",
+            ),
+            (
+                "Object.defineProperties(Object,{});",
+                "defineProperties",
+                "native=Object",
+            ),
+            (
+                "Object.defineProperty(Function.prototype,'x',{});",
+                "Object.defineProperty",
+                "native=Function.prototype",
+            ),
+            ("Object.isFrozen(opaque);", "isFrozen", "host=42"),
+            (
+                "Object.getOwnPropertySymbols(Object);",
+                "Object.getOwnPropertySymbols",
+                "native=Object",
+            ),
+            (
+                "Object.getOwnPropertyNames(opaque);",
+                "own-property-names",
+                "host=42",
+            ),
+            // The descriptor definition, not the valid first argument, is rejected.
+            (
+                "Object.defineProperty({},'x',Object);",
+                "read-descriptor-definition",
+                "native=Object",
+            ),
+        ] {
+            let mut host = InertHost::default();
+            let error = Runtime::default().execute(source, &mut host).unwrap_err();
+            assert_eq!(
+                error.diagnostic_contexts(),
+                [format!("descriptor operation={operation} {target}")],
+                "{source}"
+            );
+            assert_eq!(host.accesses, 0, "{source}");
+        }
+    }
+
+    #[test]
+    fn rejection_diagnostics_do_not_coerce_keys_or_read_descriptor_getters() {
+        let mut runtime = Runtime::default();
+        let mut host = InertHost::default();
+        let result = runtime.execute(
+            "let touched=0;const key={toString:function(){touched++;return 'private-key';}};const d={};Object.defineProperty(d,'value',{get:function(){touched++;return 'private-value';}});let caught;try{Object.defineProperty(opaque,key,d);}catch(e){caught=e;}touched===0&&caught.name==='TypeError'&&caught.message==='Host/native exotic descriptors are not implemented (except Symbol)'&&caught.cause===undefined;",
+            &mut host,
+        ).unwrap();
+        assert_eq!(result, Value::Bool(true));
+        assert_eq!(host.accesses, 0);
+    }
+
+    #[test]
+    fn symbol_key_descriptions_and_payloads_are_not_diagnostic_content() {
+        let error = Runtime::default().execute(
+            "const reporter={};try{Object.getOwnPropertyDescriptor(opaque,Symbol('private-label'));}catch(e){reporter._DumpException(e);}",
+            &mut InertHost::default(),
+        ).unwrap_err();
+        assert_eq!(
+            error.previous_exceptions()[0].contexts,
+            ["descriptor operation=symbol-descriptor host=42"]
+        );
+        assert!(!error.to_string().contains("private-label"));
+    }
+
+    #[test]
+    fn diagnostic_allocation_is_bounded_and_does_not_change_vm_budget() {
+        let mut baseline = Runtime::default();
+        let mut diagnostic = baseline.clone();
+        let message = "Host/native exotic descriptors are not implemented (except Symbol)";
+        let original = baseline.property_type_error(message);
+        let annotated = diagnostic.exotic_descriptor_error(
+            &Value::Host(u64::MAX),
+            "Object.defineProperty",
+            message,
+        );
+        assert_eq!(annotated.message, original.message);
+        assert_eq!(annotated.thrown, original.thrown);
+        assert_eq!(diagnostic.remaining, baseline.remaining);
+        assert_eq!(diagnostic.heap.len(), baseline.heap.len());
+        assert!(annotated.diagnostic_contexts()[0].len() <= 128);
+        assert!(annotated.diagnostic_contexts()[0].ends_with("host=18446744073709551615"));
     }
 }

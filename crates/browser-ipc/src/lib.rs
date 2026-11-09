@@ -3,9 +3,11 @@ use serde::{Deserialize, Serialize};
 use std::io::{self, Read, Write};
 
 mod bounded;
+mod dynamic_scripts;
 mod encoding;
+pub use dynamic_scripts::*;
 
-pub const PROTOCOL_VERSION: u32 = 8;
+pub const PROTOCOL_VERSION: u32 = 9;
 /// JavaScript's largest safe integer, in milliseconds. Frame
 /// timestamps are document-relative host pulses, not the logical timer clock.
 pub const MAX_ANIMATION_FRAME_TIMESTAMP_MS: f64 = 9_007_199_254_740_991.;
@@ -240,7 +242,7 @@ mod audio_tests {
             )
             .is_err()
         );
-        assert_eq!(PROTOCOL_VERSION, 8);
+        assert_eq!(PROTOCOL_VERSION, 9);
     }
 }
 
@@ -421,6 +423,8 @@ pub struct RenderRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RenderResponse {
+    #[serde(deserialize_with = "bounded::deserialize::<_, _, MAX_DYNAMIC_SCRIPTS>")]
+    pub pending_scripts: Vec<DynamicScriptRequest>,
     #[serde(deserialize_with = "bounded::deserialize::<_, _, SESSION_STORAGE_MAX_ENTRIES>")]
     pub session_storage: SessionStorageSnapshot,
     pub protocol_version: u32,
@@ -433,6 +437,12 @@ pub struct RenderResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SessionRequest {
     Begin(RenderRequest),
+    Scripts {
+        id: u64,
+        #[serde(deserialize_with = "bounded::deserialize::<_, _, MAX_DYNAMIC_SCRIPTS>")]
+        scripts: Vec<DynamicScriptResponse>,
+        viewport: Viewport,
+    },
     AnimationFrame {
         id: u64,
         timestamp_ms: f64,
@@ -662,6 +672,7 @@ mod collection_tests {
     }
     fn rejects_page(page: RenderedPage) {
         let bytes = frame(&RenderResponse {
+            pending_scripts: vec![],
             protocol_version: PROTOCOL_VERSION,
             id: 1,
             session_storage: vec![],
@@ -710,6 +721,7 @@ mod collection_tests {
             .map(|n| (n.to_string(), String::new()))
             .collect();
         let bytes = frame(&RenderResponse {
+            pending_scripts: vec![],
             protocol_version: PROTOCOL_VERSION,
             id: 1,
             session_storage: entries.clone(),
@@ -775,6 +787,7 @@ mod collection_tests {
         }
         p.items[0] = item;
         let response = RenderResponse {
+            pending_scripts: vec![],
             protocol_version: PROTOCOL_VERSION,
             id: 42,
             session_storage: (0..SESSION_STORAGE_MAX_ENTRIES)
@@ -784,7 +797,7 @@ mod collection_tests {
         };
         let bytes = frame(&response);
         let decoded: RenderResponse = read_message(&mut bytes.as_slice()).unwrap();
-        assert_eq!(decoded.protocol_version, 8);
+        assert_eq!(decoded.protocol_version, 9);
         assert_eq!(decoded.id, 42);
         assert_eq!(decoded.session_storage.len(), SESSION_STORAGE_MAX_ENTRIES);
         let p = decoded.result.unwrap();

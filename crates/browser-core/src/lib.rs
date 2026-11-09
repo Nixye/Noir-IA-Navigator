@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use url::Url;
 use web_dom::NodeKind;
 
+mod dynamic_scripts;
+pub use dynamic_scripts::DynamicScriptBroker;
 mod http_metadata;
 mod image_decoder;
 mod media_metadata;
@@ -317,6 +319,7 @@ fn local_resource(
     let resolved = base.join(src).ok()?;
     let path = local_path(resolved.as_str()).ok()?.canonicalize().ok()?;
     if !path.starts_with(root)
+        || !path.is_file()
         || !path
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case(extension))

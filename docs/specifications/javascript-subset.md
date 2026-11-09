@@ -85,7 +85,7 @@ O [incremento de importação dinâmica](../releases/2026-11-08-dynamic-import.m
 
 O [incremento numérico](../releases/2026-11-08-numeric-globals.md) amplia parseInt/parseFloat/isNaN/isFinite e Number.is* com coerção observável, prefixos UTF-16, aliases e limites.
 
-O [incremento Math](../releases/2026-11-08-math.md) acrescenta o namespace intrínseco com oito constantes, 34 métodos e conversão observável. Math.random continua ausente, e transcendentais não têm promessa de arredondamento universal.
+O [incremento Math](../releases/2026-11-08-math.md) acrescentou o namespace intrínseco com oito constantes, 34 métodos e conversão observável. O [incremento de fontes do host](../releases/2026-11-09-platform-services.md) acrescenta Math.random com 53 bits de entropia e performance.now/timeOrigin por documento. Transcendentais não têm promessa de arredondamento universal. Entropia/relógio não são simulados quando a fonte falta ou falha; Performance não implementa toda a interface WebIDL.
 
 Os incrementos [WeakRef](../releases/2026-11-08-weakref.md) e [WeakMap/WeakSet](../releases/2026-11-08-weak-collections.md) acrescentam referências/chaves fracas reais a objetos do heap, com marcação ephemeron, limpeza anterior ao reuso de IDs e fronteiras de coleta documentadas. [FinalizationRegistry](../releases/2026-11-08-finalization-registry.md) acrescenta registro/cancelamento e cleanup limitado posterior ao GC, sem garantia de prazo ou execução de callbacks.
 
@@ -405,3 +405,12 @@ O limite padrão e teto absoluto de call_depth é 16, aplicado em Runtime::new m
 
 
 Validação posterior: após os ciclos de correção e ajustes de preparação de testes descritos no baseline, cargo test -p web-javascript --lib --offline --locked passou 423/423, sem ignorados/filtrados. As falhas 385/420 anteriores permanecem históricas; o resultado novo não equivale a conformidade integral, validação do workspace ou browser funcional.
+
+
+## Scripts clássicos dinâmicos — 2026-11-09
+
+Em sessões retidas, createElement('script') com src prepara uma carga real mediada pelo broker ao conectar o elemento, ou ao definir src já conectado. appendChild, insertBefore, replaceChild e subárvores usam o mesmo caminho. A primeira preparação captura o src; mudanças posteriores e remoção/reinserção não repetem nem substituem a carga. Clones já iniciados e scripts parser/innerHTML permanecem inertes. Template/noscript não iniciam pedidos.
+
+O elemento script expõe src (resolvido para leitura), type, text, async, defer e noModule. Cargas são serializadas por inserção, inclusive quando async é true; false preserva ordem. Depois de receber bytes com identidade validada, a VM executa na mesma sessão e emite load, ou error para indisponibilidade. Exceção de execução usa diagnóstico/window.onerror e não converte load em error. document.currentScript só identifica o script dinâmico em avaliação neste recorte, sem suporte completo nos checkpoints/execução inicial.
+
+32 tentativas por sessão, 8192 bytes por src, 128 KiB por fonte e 512 KiB de fontes dinâmicas totais. Quotas IPC/broker são independentes das quotas de VM/DOM; esgotamento fatal descarta pedidos pendentes. O modo one-shot/replay não busca recursos adicionais. Scripts inline/módulos dinâmicos, import() com novas buscas e a coordenação de DOMContentLoaded/window.load não são implementados. Detalhes de segurança: [ADR 0023](../adr/0023-brokered-dynamic-classic-scripts.md).

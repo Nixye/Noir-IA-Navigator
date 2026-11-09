@@ -14,10 +14,13 @@ mod crypto_context_tests;
 mod promise_host_tests;
 pub use animation::MAX_ANIMATION_FRAME_TIMESTAMP_MS;
 mod diagnostics;
+mod dynamic_scripts;
 mod events;
 mod geometry;
 mod lifecycle;
 mod media;
+mod platform;
+pub use platform::{PlatformError, PlatformServices};
 #[cfg(test)]
 mod selector_query_tests;
 mod storage;
@@ -183,6 +186,8 @@ struct State {
     hardware_concurrency: Option<usize>,
     storage: storage::StorageState,
     media: media::MediaState,
+    dynamic_scripts: dynamic_scripts::DynamicScripts,
+    platform: platform::PlatformState,
 }
 #[derive(Debug, Default)]
 pub struct ScriptReport {
@@ -331,6 +336,7 @@ impl DocumentSession {
     }
     fn disable_scripts(&mut self) {
         self.scripts_disabled = true;
+        self.state.dynamic_scripts.clear();
         self.state.timers.clear();
         self.state.animation.pending.clear();
         self.state.listeners.clear();
@@ -1189,7 +1195,8 @@ impl DomHost<'_> {
         self.validate_insertion(parent, child, reference, true)?;
         self.mutate(0)?;
         self.commit_insertion(parent, child, reference);
-        Ok(())
+        self.prepare_dynamic_script(parent)?;
+        self.prepare_dynamic_subtree(child)
     }
     fn remove_child(&mut self, parent: NodeId, child: NodeId) -> Result<(), JsError> {
         if self.document.nodes[child].parent != Some(parent)
@@ -1228,7 +1235,8 @@ impl DomHost<'_> {
         self.mutate(0)?;
         self.commit_insertion(parent, child, Some(old));
         self.detach(old);
-        Ok(())
+        self.prepare_dynamic_script(parent)?;
+        self.prepare_dynamic_subtree(child)
     }
     fn append(&mut self, parent: NodeId, child: NodeId) -> Result<(), JsError> {
         self.validate_insertion(parent, child, None, false)?;
@@ -1289,6 +1297,7 @@ impl DomHost<'_> {
         let mut clones = Vec::with_capacity(plan.len());
         for (id, parent) in plan {
             let cloned = self.create(self.document.nodes[id].kind.clone())?;
+            self.state.dynamic_scripts.clone_node(id, cloned);
             if let Some(parent) = parent {
                 self.append(clones[parent], cloned)?;
             }
@@ -1482,7 +1491,7 @@ impl DomHost<'_> {
             self.document.nodes[child].parent = Some(id);
             self.document.nodes[id].children.push(child);
         }
-        Ok(())
+        self.prepare_dynamic_script(id)
     }
     fn set_attribute(&mut self, id: NodeId, key: String, value: String) -> Result<(), JsError> {
         if key.len() > 128
@@ -1502,8 +1511,13 @@ impl DomHost<'_> {
         if key.eq_ignore_ascii_case("src") {
             self.state.media.nodes.remove(&id);
         }
+        let script_source = key == "src";
         element.attributes.insert(key, value);
-        Ok(())
+        if script_source {
+            self.prepare_dynamic_script(id)
+        } else {
+            Ok(())
+        }
     }
     fn listener(
         &mut self,
@@ -1655,6 +1669,15 @@ fn event_handler_kind(property: &str) -> Option<&str> {
     })
 }
 impl Host for DomHost<'_> {
+    fn random_u64(&mut self) -> Result<u64, JsError> {
+        self.state.platform.random_u64()
+    }
+    fn performance_time_origin(&self) -> Result<f64, JsError> {
+        self.state.platform.time_origin_millis()
+    }
+    fn performance_now(&self) -> Result<f64, JsError> {
+        self.state.platform.monotonic_millis()
+    }
     fn allows_subtle_crypto(&self) -> bool {
         // Conservative top-level policy, not a complete secure-context model.
         // Only loader-supplied metadata grants this capability; JS location,
@@ -1879,6 +1902,7 @@ impl Host for DomHost<'_> {
                     property,
                     "title"
                         | "readyState"
+                        | "currentScript"
                         | "body"
                         | "head"
                         | "documentElement"
@@ -1976,6 +2000,14 @@ impl Host for DomHost<'_> {
             };
             if property == "duration" {
                 return Ok(element.tag == "audio");
+            }
+            if element.tag == "script"
+                && matches!(
+                    property,
+                    "src" | "type" | "text" | "async" | "defer" | "noModule"
+                )
+            {
+                return Ok(true);
             }
             return Ok(matches!(
                 property,
@@ -2149,6 +2181,13 @@ impl Host for DomHost<'_> {
             };
         }
         if object == DOC {
+            if property == "currentScript" {
+                return Ok(self
+                    .state
+                    .dynamic_scripts
+                    .current
+                    .map_or(Value::Null, Self::node_value));
+            }
             if property == "URL" || property == "documentURI" {
                 return self.location_property("href");
             }
@@ -2333,6 +2372,9 @@ impl Host for DomHost<'_> {
                 })
                 .map_or(Value::Null, |listener| listener.callback.clone()));
         }
+        if let Some(value) = self.script_property(id, property)? {
+            return Ok(value);
+        }
         match property {
             // Reached only after node-handle validation and the normal read
             // charge, so assimilation cannot bypass either boundary.
@@ -2514,6 +2556,9 @@ impl Host for DomHost<'_> {
             return self.set_attribute(id, "style".into(), style);
         }
         let id = self.node(object)?;
+        if self.set_script_property(id, property, &value)? {
+            return Ok(());
+        }
         if property == "duration" && self.document.element(id).is_some_and(|e| e.tag == "audio") {
             return Err(JsError::runtime("audio.duration is read-only"));
         }
@@ -3138,12 +3183,15 @@ impl Host for DomHost<'_> {
                         return Err(JsError::runtime("Invalid element tag"));
                     }
                     self.mutate(tag.len())?;
-                    Ok(Value::Host(
-                        NODE + self.create(NodeKind::Element(Element {
-                            tag,
-                            attributes: BTreeMap::new(),
-                        }))? as u64,
-                    ))
+                    let script = tag == "script";
+                    let id = self.create(NodeKind::Element(Element {
+                        tag,
+                        attributes: BTreeMap::new(),
+                    }))?;
+                    if script {
+                        self.state.dynamic_scripts.candidates.insert(id);
+                    }
+                    Ok(Self::node_value(id))
                 }
                 "createTextNode" => {
                     let value = text(0)?;
@@ -3549,7 +3597,7 @@ mod tests {
     fn vm_math_namespace_is_shared_with_window_and_bypasses_legacy_host_math() {
         let mut session =
             DocumentSession::new(web_html::parse("<!doctype html><body></body>").unwrap());
-        assert_eq!(session.execute("var Math;var Reflect;Math===window.Math && typeof Math==='object' && typeof Reflect==='object' && Reflect===window.Reflect && Math.hypot(3,4)===5 && Math.imul(4294967295,5)===-5 && Object.is(Math.round(-0.5),-0) && typeof Math.random==='undefined';").unwrap(), Value::Bool(true));
+        assert_eq!(session.execute("var Math;var Reflect;Math===window.Math && typeof Math==='object' && typeof Reflect==='object' && Reflect===window.Reflect && Math.hypot(3,4)===5 && Math.imul(4294967295,5)===-5 && Object.is(Math.round(-0.5),-0) && typeof Math.random==='function';").unwrap(), Value::Bool(true));
         assert_eq!(session.execute("let calls=0;const operand={valueOf(){calls++;return -7;}};window.Math.abs(operand)===7 && calls===1 && Object.keys(Math).length===0;").unwrap(), Value::Bool(true));
         assert_eq!(session.execute("const namespace=Math;window.Math={replacement:true};Math===window.Math && Math.replacement && namespace.sqrt(9)===3;").unwrap(), Value::Bool(true));
     }

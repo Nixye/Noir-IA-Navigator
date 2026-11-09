@@ -26,6 +26,7 @@ mod modules;
 mod native_symbol;
 mod numeric_globals;
 mod parser;
+mod performance;
 mod prepared_call;
 mod promises;
 mod properties;
@@ -199,6 +200,18 @@ impl fmt::Display for JsError {
 impl std::error::Error for JsError {}
 
 pub trait Host {
+    /// Supplies fresh host entropy. The VM never opens files or calls OS RNGs.
+    /// Hosts must not rewind this source when a JavaScript transaction rolls back.
+    fn random_u64(&mut self) -> Result<u64, JsError> {
+        Err(JsError::runtime("Host entropy source is unavailable"))
+    }
+    /// Real document clock, independent of the host's logical timer scheduler.
+    fn performance_time_origin(&self) -> Result<f64, JsError> {
+        Err(JsError::runtime("Host performance clock is unavailable"))
+    }
+    fn performance_now(&self) -> Result<f64, JsError> {
+        Err(JsError::runtime("Host performance clock is unavailable"))
+    }
     /// Trusted, frozen top-level policy. This is not a complete secure-context implementation.
     fn allows_subtle_crypto(&self) -> bool {
         false
@@ -771,6 +784,9 @@ impl Runtime {
         if name == "crypto" {
             return self.crypto_namespace(host);
         }
+        if name == "performance" {
+            return self.performance_namespace(host);
+        }
         if name == "WebAssembly" {
             return self.wasm_namespace();
         }
@@ -861,6 +877,9 @@ impl Runtime {
                             let initial = match self.global_own_property(name) {
                                 Some(value) => Some(value),
                                 None if name == "crypto" => Some(self.crypto_namespace(host)?),
+                                None if name == "performance" => {
+                                    Some(self.performance_namespace(host)?)
+                                }
                                 None if name == "WebAssembly" => Some(self.wasm_namespace()?),
                                 None if name == "JSON" => Some(self.json_namespace()?),
                                 None if name == "Math" => Some(self.math_namespace()?),
@@ -1901,6 +1920,9 @@ impl Runtime {
                     if property == "crypto" {
                         return self.crypto_namespace(host);
                     }
+                    if property == "performance" {
+                        return self.performance_namespace(host);
+                    }
                     if property == "WebAssembly" {
                         return self.wasm_namespace();
                     }
@@ -2240,6 +2262,9 @@ impl Runtime {
             }
             if name == "SubtleCrypto.digest" {
                 return self.crypto_digest(&args, &this, host);
+            }
+            if name == "Performance.now" {
+                return self.performance_now(&this, host);
             }
             if let Some(value) = self.wasm_native_call(name, &args, false, host)? {
                 return Ok(value);
@@ -2637,6 +2662,9 @@ impl Runtime {
             }
             if name == "SubtleCrypto.digest" {
                 return Err(self.property_type_error("digest is not a constructor"));
+            }
+            if name == "Performance.now" {
+                return Err(self.property_type_error("performance.now is not a constructor"));
             }
             if let Some(value) = self.wasm_native_call(name, &args, true, host)? {
                 return Ok(value);
@@ -3125,6 +3153,7 @@ fn intrinsic_global(name: &str) -> Option<Value> {
         "WebAssembly" => Value::Native("WebAssembly"),
         "Reflect" => Value::Native("Reflect"),
         "Math" => Value::Native("Math"),
+        "performance" => Value::Native("performance"),
         "Error" => Value::Native("Error"),
         "TypeError" => Value::Native("TypeError"),
         "RangeError" => Value::Native("RangeError"),

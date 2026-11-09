@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Noir: entropia e tempo</title></head>
+<body><h1>Math.random e performance</h1><p id="result">Aguardando execução.</p>
+<script>
+const origin = performance.timeOrigin;
+const before = performance.now();
+const random = Math.random;
+let valid = true;
+for (let i=0;i<32;i++) {
+  const value = random();
+  valid = valid && value >= 0 && value < 1;
+}
+const after = performance.now();
+valid = valid && performance === window.performance && origin > 0
+  && before >= 0 && after >= before && performance.timeOrigin === origin
+  && random.length === 0 && performance.now.length === 0;
+document.getElementById('result').textContent = valid
+  ? 'Entropia e relógio do documento ativos.' : 'Falha nos serviços do documento.';
+setTimeout(function() {
+  const ok = valid && performance.timeOrigin === origin && performance.now() >= after;
+  document.getElementById('result').textContent = ok
+    ? 'Entropia, relógio e callback ativos.' : 'Falha após callback.';
+}, 0);
+</script></body></html>
