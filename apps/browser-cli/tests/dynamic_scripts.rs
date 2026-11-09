@@ -134,6 +134,18 @@ fn real_session_denials_dispatch_errors_without_reading_outside_the_root() {
         "warnings: {:?}",
         page.warnings
     );
+    assert_eq!(
+        page.warnings
+            .iter()
+            .filter(|warning| warning.contains("phase=load"))
+            .count(),
+        2
+    );
+    assert!(
+        page.warnings
+            .iter()
+            .all(|warning| !warning.contains("private.js") && !warning.contains("missing.js"))
+    );
 }
 
 #[test]
@@ -155,6 +167,11 @@ fn one_shot_rendering_preserves_offline_boundary_and_reports_pending_scripts() {
     let page =
         browser_process::render_in_subprocess(executable(), input, Viewport::default()).unwrap();
     assert_eq!(text(&page), "offline");
+    assert!(
+        page.warnings
+            .iter()
+            .all(|warning| !warning.contains("phase=load"))
+    );
     assert!(
         page.warnings
             .iter()

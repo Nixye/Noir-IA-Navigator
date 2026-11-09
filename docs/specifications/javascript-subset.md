@@ -421,3 +421,8 @@ Inline dinâmico executa sincronamente antes da operação DOM retornar, em esco
 ## Coleções vivas getElementsByTagName — 2026-11-09
 
 Document e Element expõem getElementsByTagName com conversão observável para string, wildcard e busca HTML sem distinção ASCII. A coleção permanece ligada à raiz e à tag, sem snapshot de resultados; length, índices, item e namedItem leem a árvore atual. item converte para unsigned long e retorna null quando ausente; índice/nome ausente retorna undefined. Nomes id/name respeitam a ordem da árvore e não substituem length/item/namedItem. Consultas iguais reutilizam a identidade; máximo 64 consultas distintas e 1024 bytes por nome/tag. Traversal consome o orçamento compartilhado do DOM; template/noscript conservam a fronteira inerte. Protótipos WebIDL/Host, namespaces, expandos e símbolos iteradores não foram acrescentados. [Nota do incremento](../releases/2026-11-09-live-tag-collections.md).
+
+
+## Propriedades globais com descritores — 2026-11-09
+
+O objeto global fornecido por Host::global_object admite descritores de dados/accessors para propriedades VM e intrinsics substituíveis, incluindo keys símbolo. Aliases e nomes globais compartilham metadados; var/function, eval, let/const e delete mantêm as distinções descritas na [nota do incremento](../releases/2026-11-09-window-global-descriptors.md). Getters não são executados por consultas de metadados. A implementação não libera descritores para Document, Node, serviços host-backed ou nativos arbitrários, nem implementa WindowProxy/WebIDL completo.

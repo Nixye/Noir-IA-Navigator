@@ -1,6 +1,13 @@
 use crate::{JsError, Value};
 use std::sync::Arc;
 
+const MAX_SCRIPT_TOKENS: usize = 32_768;
+const MAX_SYNTAX_NODES: usize = 16_384;
+
+#[cfg(test)]
+#[path = "parser_token_budget_tests.rs"]
+mod token_budget_tests;
+
 #[path = "parser_modules.rs"]
 mod modules;
 pub use modules::{Module, parse_module};
@@ -401,6 +408,22 @@ fn template_expression_end(source: &str, mut i: usize, depth: usize) -> Result<u
     }
     Err(JsError::syntax(i, "Unclosed template interpolation"))
 }
+// Keep geometric growth for small scripts, but reserve only one extra slot at
+// the limit for EOF. Vec's default growth would double the allocation there.
+fn push_token(tokens: &mut Vec<Token>, token: Token) -> Result<(), JsError> {
+    if tokens.len() > MAX_SCRIPT_TOKENS {
+        return Err(JsError::resource("Script token budget exceeded"));
+    }
+    if tokens.len() == tokens.capacity() {
+        let capacity = (tokens.capacity() * 2).clamp(4, MAX_SCRIPT_TOKENS + 1);
+        tokens
+            .try_reserve_exact(capacity - tokens.len())
+            .map_err(|_| JsError::resource("Script token allocation failed"))?;
+    }
+    tokens.push(token);
+    Ok(())
+}
+
 fn lex(source: &str) -> Result<Vec<Token>, JsError> {
     let mut result = Vec::new();
     let mut i = 0;
@@ -645,22 +668,36 @@ fn lex(source: &str) -> Result<Vec<Token>, JsError> {
                 return Err(JsError::syntax(i, format!("Unsupported token {ch:?}")));
             }
         };
-        context.update(&kind, result.last());
-        result.push(Token {
-            kind,
-            offset: start,
-            newline,
-        });
-        newline = false;
-        if result.len() > 32_768 {
-            return Err(JsError::resource("Script token budget exceeded"));
+        if result.len() == MAX_SCRIPT_TOKENS {
+            let mut error = JsError::resource("Script token budget exceeded");
+            error.add_diagnostic_context(&format!(
+                "lexer tokens={} limit={} input-bytes={} scanned-bytes={}",
+                result.len() + 1,
+                MAX_SCRIPT_TOKENS,
+                source.len(),
+                i,
+            ));
+            return Err(error);
         }
+        context.update(&kind, result.last());
+        push_token(
+            &mut result,
+            Token {
+                kind,
+                offset: start,
+                newline,
+            },
+        )?;
+        newline = false;
     }
-    result.push(Token {
-        kind: Kind::End,
-        offset: source.len(),
-        newline,
-    });
+    push_token(
+        &mut result,
+        Token {
+            kind: Kind::End,
+            offset: source.len(),
+            newline,
+        },
+    )?;
     Ok(result)
 }
 
@@ -966,8 +1003,13 @@ impl Parser {
     }
     fn count(&mut self) -> Result<(), JsError> {
         self.nodes += 1;
-        if self.nodes > 16_384 {
-            Err(JsError::resource("Syntax tree node budget exceeded"))
+        if self.nodes > MAX_SYNTAX_NODES {
+            let mut error = JsError::resource("Syntax tree node budget exceeded");
+            error.add_diagnostic_context(&format!(
+                "parser nodes={} limit={}",
+                self.nodes, MAX_SYNTAX_NODES,
+            ));
+            Err(error)
         } else {
             Ok(())
         }

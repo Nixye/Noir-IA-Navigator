@@ -437,6 +437,11 @@ impl DocumentSession {
                 // a network error. execute already reports it to window.onerror.
                 "load"
             } else {
+                if report.warnings.len() < 32 {
+                    report
+                        .warnings
+                        .push(diagnostics::dynamic_load_warning(response.id, pending.node));
+                }
                 "error"
             };
             if let Err(error) = self.dispatch_target(NODE + pending.node as u64, kind) {
@@ -458,5 +463,7 @@ impl DocumentSession {
 
 #[cfg(test)]
 mod inline_tests;
+#[cfg(test)]
+mod load_diagnostics_tests;
 #[cfg(test)]
 mod tests;

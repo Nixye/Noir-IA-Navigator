@@ -2005,12 +2005,7 @@ impl Runtime {
                         kind == Declaration::Var,
                     )?;
                 }
-                let binding = self.scopes[target]
-                    .bindings
-                    .get_mut(&name)
-                    .ok_or_else(|| JsError::runtime("Missing continuation binding"))?;
-                binding.value = value;
-                binding.initialized = true;
+                self.initialize_binding_value(target, &name, value, host)?;
             }
         }
         Ok(None)

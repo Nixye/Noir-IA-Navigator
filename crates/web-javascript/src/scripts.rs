@@ -73,6 +73,7 @@ impl Runtime {
         source_precharged: bool,
         host: &mut impl Host,
     ) -> Result<Vec<Stmt>, JsError> {
+        self.capture_global_object(host)?;
         let statements = parser::parse(source).map_err(|mut error| {
             if input_offset {
                 error.mark_input_source_offset();
@@ -99,9 +100,12 @@ impl Runtime {
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
         let previous = self.strict;
+        let previous_deletable = self.global_declaration_deletable;
+        self.global_declaration_deletable = false;
         self.strict = crate::strict_validation::strict_directive(statements);
         let result = self.block(statements, 0, host);
         self.strict = previous;
+        self.global_declaration_deletable = previous_deletable;
         result.and_then(|flow| match flow {
             Flow::Normal(v) => Ok(v),
             Flow::Empty => Ok(Value::Undefined),

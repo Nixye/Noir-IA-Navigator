@@ -82,6 +82,8 @@ impl Runtime {
         }
         self.dynamic_depth += 1;
         let previous_strict = self.strict;
+        let previous_deletable = self.global_declaration_deletable;
+        self.global_declaration_deletable = !strict && outer_target == 0;
         self.strict = strict;
         let result = (|| {
             // A strict eval owns a var environment. Sloppy eval only owns a
@@ -114,6 +116,9 @@ impl Runtime {
                     }
                     _ => continue,
                 };
+                if target == 0 {
+                    self.define_global_function(name, value.clone(), host)?;
+                }
                 if !self.scopes[target].bindings.contains_key(name) {
                     self.declare(target, name, true, true)?;
                 }
@@ -121,6 +126,13 @@ impl Runtime {
                 binding.value = value;
                 binding.initialized = true;
                 binding.global_property = target == 0;
+                binding.global_configurable = target == 0;
+                if target == 0
+                    && let Some(id) = self.global_properties
+                    && let Some(deleted) = self.deleted_synthetics.get_mut(&id)
+                {
+                    deleted.remove(name);
+                }
             }
             let mut result = Value::Undefined;
             for statement in &statements {
@@ -133,6 +145,7 @@ impl Runtime {
             Ok(result)
         })();
         self.strict = previous_strict;
+        self.global_declaration_deletable = previous_deletable;
         self.dynamic_depth -= 1;
         result
     }

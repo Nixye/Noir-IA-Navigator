@@ -16,6 +16,7 @@ mod exception_diagnostics;
 pub use exception_diagnostics::ExceptionDiagnostic;
 mod finalization_registry;
 mod gc;
+mod globals;
 #[cfg(test)]
 mod host_constructors;
 mod json;
@@ -329,6 +330,7 @@ struct Binding {
     mutable: bool,
     initialized: bool,
     global_property: bool,
+    global_configurable: bool,
     lexical: bool,
 }
 #[derive(Debug, Clone)]
@@ -385,6 +387,8 @@ pub struct Runtime {
     conversion_depth: usize,
     binding_count: usize,
     global_properties: Option<usize>,
+    global_object_handle: Option<u64>,
+    global_declaration_deletable: bool,
     regexp_count: usize,
     regexp_pattern_bytes: usize,
     regexp_work: usize,
@@ -464,6 +468,8 @@ impl Runtime {
             conversion_depth: 0,
             binding_count: 0,
             global_properties: None,
+            global_object_handle: None,
+            global_declaration_deletable: false,
             regexp_count: 0,
             regexp_pattern_bytes: 0,
             regexp_work: 0,
@@ -571,6 +577,9 @@ impl Runtime {
             .or_else(|| self.global_own_property(name))
     }
     fn global_own_property(&self, name: &str) -> Option<Value> {
+        if let Some(value) = self.global_stored(name) {
+            return Some(value);
+        }
         if let Some(binding) = self.scopes[0]
             .bindings
             .get(name)
@@ -738,6 +747,13 @@ impl Runtime {
                     "Cannot access {name} before initialization"
                 )));
             }
+            if b.global_property
+                && let Some(global) = host.global_object()
+                && let Some(value) = self.read_global_stored(name, Value::Host(global), host)?
+            {
+                return Ok(value);
+            }
+            let b = &self.scopes[id].bindings[name];
             // Global var bindings are object properties, not lexical shadows.
             if b.global_property
                 && host.global_accessor(name)
@@ -754,10 +770,13 @@ impl Runtime {
             let value = host.get(global, name)?;
             return self.host_value(value);
         }
-        if host.global_object().is_some()
-            && let Some(value) = self.global_own_property(name)
+        if let Some(global) = host.global_object()
+            && let Some(value) = self.read_global_stored(name, Value::Host(global), host)?
         {
             return Ok(value);
+        }
+        if self.global_deleted(name) {
+            return Err(JsError::runtime(format!("{name} is not defined")));
         }
         if name == "crypto" {
             return self.crypto_namespace(host);
@@ -788,6 +807,19 @@ impl Runtime {
         mutable: bool,
         initialized: bool,
     ) -> Result<(), JsError> {
+        if scope == 0
+            && !initialized
+            && (self.global_object_handle.is_some()
+                && matches!(name, "undefined" | "NaN" | "Infinity")
+                || self
+                    .global_properties
+                    .is_some_and(|id| !self.configurable_property(id, name)))
+        {
+            return Err(JsError::syntax(
+                0,
+                "Lexical declaration conflicts with a non-configurable global property",
+            ));
+        }
         if self.binding_count >= 16_384 {
             return Err(JsError::resource(
                 "JavaScript total binding budget exceeded",
@@ -808,6 +840,7 @@ impl Runtime {
                 mutable,
                 initialized,
                 global_property: false,
+                global_configurable: false,
                 lexical: !initialized,
             },
         );
@@ -840,6 +873,13 @@ impl Runtime {
                 Stmt::Variables(Declaration::Var, values) => {
                     for (name, _) in values {
                         let target = self.function_scope(scope);
+                        if target == 0
+                            && host.global_object().is_some()
+                            && intrinsic_global(name).is_some()
+                            && !self.global_deleted(name)
+                        {
+                            self.materialize_global_property(name, host)?;
+                        }
                         let new = !self.scopes[target].bindings.contains_key(name);
                         if new {
                             self.declare(target, name, true, true)?;
@@ -854,6 +894,7 @@ impl Runtime {
                             // bindings must retain the actual lazy namespace object.
                             let initial = match self.global_own_property(name) {
                                 Some(value) => Some(value),
+                                None if self.global_deleted(name) => None,
                                 None if name == "crypto" => Some(self.crypto_namespace(host)?),
                                 None if name == "performance" => {
                                     Some(self.performance_namespace(host)?)
@@ -866,8 +907,16 @@ impl Runtime {
                             };
                             let binding = self.scopes[0].bindings.get_mut(name).unwrap();
                             binding.global_property = true;
+                            if new {
+                                binding.global_configurable = self.global_declaration_deletable;
+                            }
                             if new && let Some(value) = initial {
                                 binding.value = value;
+                            }
+                            if let Some(id) = self.global_properties
+                                && let Some(deleted) = self.deleted_synthetics.get_mut(&id)
+                            {
+                                deleted.remove(name);
                             }
                         }
                     }
@@ -978,12 +1027,22 @@ impl Runtime {
                             },
                         );
                     }
+                    if scope == 0 {
+                        self.define_global_function(name, function.clone(), host)?;
+                    }
                     if !self.scopes[scope].bindings.contains_key(name) {
                         self.declare(scope, name, true, true)?;
                     }
                     let binding = self.scopes[scope].bindings.get_mut(name).unwrap();
                     binding.value = function;
                     binding.global_property = scope == 0;
+                    binding.global_configurable = false;
+                    if scope == 0
+                        && let Some(id) = self.global_properties
+                        && let Some(deleted) = self.deleted_synthetics.get_mut(&id)
+                    {
+                        deleted.remove(name);
+                    }
                 }
                 Stmt::Variables(kind, values) if *kind != Declaration::Var => {
                     for (name, _) in values {
@@ -1073,11 +1132,14 @@ impl Runtime {
                         Some(expr) => self.eval(expr, scope, host)?,
                         None => Value::Undefined,
                     };
-                    let binding = self.scopes[target].bindings.get_mut(name).unwrap();
                     if initial.is_some() || *kind != Declaration::Var {
-                        binding.value = value;
+                        self.initialize_binding_value(target, name, value, host)?;
                     }
-                    binding.initialized = true;
+                    self.scopes[target]
+                        .bindings
+                        .get_mut(name)
+                        .unwrap()
+                        .initialized = true;
                 }
                 Ok(Flow::Empty)
             }
@@ -1648,8 +1710,8 @@ impl Runtime {
                     && let Expr::Name(name) = expr.as_ref()
                     && self.lookup_binding(scope, name).is_none()
                     && self.global_own_property(name).is_none()
-                    && host.global(name).is_none()
-                    && intrinsic_global(name).is_none()
+                    && (self.global_deleted(name)
+                        || (host.global(name).is_none() && intrinsic_global(name).is_none()))
                 {
                     return self.string("undefined".into());
                 }
@@ -1742,8 +1804,9 @@ impl Runtime {
                 } else if let Some(id) = host.global_object() {
                     if self.strict
                         && self.global_own_property(name).is_none()
-                        && intrinsic_global(name).is_none()
-                        && !host.has_property(id, name)?
+                        && (self.global_deleted(name)
+                            || (intrinsic_global(name).is_none()
+                                && !host.has_property(id, name)?))
                     {
                         return Err(JsError::runtime(format!(
                             "Assignment to undeclared identifier {name}"
@@ -1787,6 +1850,9 @@ impl Runtime {
                 if let Some(value) = self.module_read_binding(*id, name) {
                     return value;
                 }
+                if *id == 0 && self.scopes[0].bindings[name].global_property {
+                    return self.read(0, name, host);
+                }
                 let binding = &self.scopes[*id].bindings[name];
                 if !binding.initialized {
                     return Err(JsError::runtime("Access before initialization"));
@@ -1812,6 +1878,13 @@ impl Runtime {
     ) -> Result<(), JsError> {
         match place {
             Place::Binding(id, name) => {
+                if id == 0
+                    && !host.global_accessor(&name)
+                    && self.scopes[0].bindings[&name].global_property
+                    && let Some(global) = host.global_object()
+                {
+                    return self.set(Value::Host(global), &name, value, host);
+                }
                 let binding = self.scopes[id].bindings.get_mut(&name).unwrap();
                 if !binding.initialized {
                     return Err(JsError::runtime("Assignment before initialization"));
@@ -1892,8 +1965,16 @@ impl Runtime {
                         let value = host.get(id, property)?;
                         return self.host_value(value);
                     }
+                    if let Some(value) =
+                        self.read_global_stored(property, receiver.clone(), host)?
+                    {
+                        return Ok(value);
+                    }
                     if let Some(value) = self.global_own_property(property) {
                         return Ok(value);
+                    }
+                    if self.global_deleted(property) {
+                        return Ok(Value::Undefined);
                     }
                     if property == "crypto" {
                         return self.crypto_namespace(host);
@@ -2091,26 +2172,7 @@ impl Runtime {
                 if host.global_accessor(property) {
                     return host.set_with_runtime(id, property, value, self);
                 }
-                if self.scopes[0]
-                    .bindings
-                    .get(property)
-                    .is_some_and(|b| b.global_property)
-                {
-                    return self.write_place(Place::Binding(0, property.to_owned()), value, host);
-                }
-                let properties = if let Some(id) = self.global_properties {
-                    id
-                } else {
-                    let id = self.allocate(Heap::Object(Object {
-                        properties: BTreeMap::new(),
-                        non_enumerable: BTreeSet::new(),
-                        prototype: None,
-                        regexp: None,
-                    }))?;
-                    self.global_properties = Some(id);
-                    id
-                };
-                self.set(Value::Object(properties), property, value, host)
+                self.store_global_property(property, value, host)
             }
             Value::Host(id) => host.set_with_runtime(id, property, value, self),
             Value::Function(id) => {
@@ -2327,7 +2389,11 @@ impl Runtime {
                     self.symbol_descriptor(&object, symbol)?.is_some()
                 } else {
                     let name = self.text(&key, 0)?;
-                    self.has_own_property(&object, &name)?
+                    if self.is_global_object(&object) {
+                        self.global_has_own(&name, host)?
+                    } else {
+                        self.has_own_property(&object, &name)?
+                    }
                 };
                 return Ok(Value::Bool(present));
             }
@@ -2891,7 +2957,11 @@ impl Runtime {
                         return Err(JsError::runtime("Invalid array length"));
                     }
                     if length > 4096. {
-                        return Err(JsError::resource("Array item limit exceeded"));
+                        let mut error = JsError::resource("Array item limit exceeded");
+                        error.add_diagnostic_context(&format!(
+                            "array operation=construct requested-length={length:e} limit=4096",
+                        ));
+                        return Err(error);
                     }
                     self.check_array_slots(length as usize)?;
                     vec![Value::Undefined; length as usize]

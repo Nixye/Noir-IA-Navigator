@@ -184,3 +184,8 @@ Não inclui módulos/import() sob demanda, paralelismo async, coordenação comp
 ## Coleções DOM vivas por tag — 2026-11-09
 
 Document/Element.getElementsByTagName retorna coleção viva com length, índices, item e namedItem, em ordem da árvore. Inserções, remoções, innerHTML e mudanças de id/name são observadas nas leituras seguintes; raízes destacadas e padrão de loader com primeiro script são cobertos. Até 64 consultas distintas, nomes de 1024 bytes e orçamento de leitura compartilhado. Sem namespaces/XML, protótipos/descritores Host completos, expandos ou iteração por símbolo; Array.from usa array-like. querySelectorAll permanece snapshot. [Escopo e validação](../releases/2026-11-09-live-tag-collections.md).
+
+
+## Descritores do global Window — 2026-11-09
+
+Object.defineProperty/defineProperties no global usam propriedades da VM, com metadados, accessors e sincronização de var/function, eval e aliases Window. Substituições de intrinsics como Map preservam flags e não modificam o objeto nativo anterior. Hosts genéricos e propriedades host-backed continuam recusados; enumeração completa, integridade e Reflect no Window não foram liberados. [Escopo e validação](../releases/2026-11-09-window-global-descriptors.md).

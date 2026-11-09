@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Descritores no global</title></head>
+<body><h1>Descritores Window na VM própria</h1><p id="result">Aguardando execução.</p>
+<script>
+const originalMap = Map;
+function LocalMap() { this.ready = true; }
+Object.defineProperty(window, 'Map', { configurable: true, writable: true, value: LocalMap });
+let reads = 0;
+Object.defineProperty(window, 'state', {
+  get: function () { reads++; return this === window ? 'ativo' : 'receptor inválido'; },
+  configurable: true
+});
+const descriptor = Object.getOwnPropertyDescriptor(window, 'Map');
+const valid = Map === LocalMap && globalThis.Map === LocalMap && originalMap !== Map
+  && new Map().ready && descriptor.writable && descriptor.configurable && !descriptor.enumerable
+  && state === 'ativo' && reads === 1;
+document.getElementById('result').textContent = valid ? 'Polyfill global e descritores ativos.' : 'Falha nos descritores.';
+</script></body></html>

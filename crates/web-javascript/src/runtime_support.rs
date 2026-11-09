@@ -2,6 +2,10 @@
 use crate::{Heap, Host, JsError, Runtime, Value};
 use std::collections::BTreeSet;
 
+#[cfg(test)]
+#[path = "runtime_support/budget_tests.rs"]
+mod budget_tests;
+
 pub(super) fn number_text(value: f64) -> String {
     if value.is_nan() {
         return "NaN".into();

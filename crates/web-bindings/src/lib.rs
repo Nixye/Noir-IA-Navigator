@@ -11,6 +11,8 @@ mod array_from_tests;
 #[cfg(test)]
 mod crypto_context_tests;
 #[cfg(test)]
+mod global_descriptor_tests;
+#[cfg(test)]
 mod promise_host_tests;
 pub use animation::MAX_ANIMATION_FRAME_TIMESTAMP_MS;
 mod collections;

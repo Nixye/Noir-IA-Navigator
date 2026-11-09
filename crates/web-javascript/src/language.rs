@@ -118,9 +118,7 @@ impl Runtime {
                 if !self.scopes[target].bindings.contains_key(name) {
                     self.declare(target, name, *kind != Declaration::Const, true)?;
                 }
-                let binding = self.scopes[target].bindings.get_mut(name).unwrap();
-                binding.value = value;
-                binding.initialized = true;
+                self.initialize_binding_value(target, name, value, host)?;
                 Ok(if *kind == Declaration::Var {
                     scope
                 } else {
@@ -548,9 +546,7 @@ impl Runtime {
                 let target = target
                     .or_else(|| self.lookup_binding(scope, name))
                     .ok_or_else(|| JsError::runtime("Missing pattern binding"))?;
-                let binding = self.scopes[target].bindings.get_mut(name).unwrap();
-                binding.value = value;
-                binding.initialized = true;
+                self.initialize_binding_value(target, name, value, host)?;
                 Ok(())
             }
             Pattern::Default(pattern, expr) => {

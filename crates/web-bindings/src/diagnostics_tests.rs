@@ -15,6 +15,35 @@ fn asset(src: &str, source: &str) -> ScriptAsset {
 }
 
 #[test]
+fn resource_budget_context_reaches_report_without_source_or_invented_position() {
+    for (source, context) in [
+        (";".repeat(32_769), "lexer tokens=32769 limit=32768"),
+        (";".repeat(16_385), "parser nodes=16385 limit=16384"),
+        (
+            "document.body.textContent='PRIVATE_EFFECT';try{Array(5868);}catch(e){}".into(),
+            "array operation=construct requested-length=5.868e3 limit=4096",
+        ),
+    ] {
+        let mut s = session(&format!(
+            "<body><p>unchanged</p><script>{source}</script></body>"
+        ));
+        let body = s.query_selector("body").unwrap().unwrap();
+        let original = s.document.text_content(body);
+        let report = s.run_initial(&[]);
+        assert_eq!(report.executed, 0);
+        assert_eq!(report.warnings.len(), 1);
+        let warning = &report.warnings[0];
+        assert!(warning.contains(context), "{warning}");
+        assert!(!warning.contains("PRIVATE_EFFECT"), "{warning}");
+        assert!(!warning.contains("line="), "{warning}");
+        assert!(!warning.contains("column="), "{warning}");
+        assert!(warning.len() <= MAX_WARNING_BYTES);
+        assert_eq!(s.document.text_content(body), original);
+        assert_eq!(s.execute("1;").unwrap_err().kind, ErrorKind::Resource);
+    }
+}
+
+#[test]
 fn source_positions_require_valid_utf8_offsets_and_count_js_newlines() {
     let source = "á😀\r\nx\ry\nz\u{2028}w\u{2029}終";
     assert_eq!(source_position(source, 0), Some((1, 1)));

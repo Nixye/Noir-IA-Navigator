@@ -211,6 +211,9 @@ impl Runtime {
         id: &str,
         host: &mut impl Host,
     ) -> ModuleExecution {
+        if let Err(error) = self.capture_global_object(host) {
+            return ModuleExecution::LinkFailed(error);
+        }
         let id = id.to_owned();
         let previous_strict = self.strict;
         self.strict = true;

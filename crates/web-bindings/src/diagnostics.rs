@@ -185,6 +185,18 @@ pub(super) fn callback_warning(
     output.finish()
 }
 
+/// A missing broker source is not a JavaScript execution failure. The current
+/// protocol does not provide its cause, so do not infer network/policy
+/// details. IDs correlate the request without logging URLs, paths or bodies.
+pub(super) fn dynamic_load_warning(request: u64, node: NodeId) -> String {
+    let mut output = BoundedText::new(MAX_WARNING_BYTES);
+    let _ = write!(
+        output,
+        "JavaScript dynamic script load failed [phase=load, request={request}, node={node}]: resource unavailable or denied by broker"
+    );
+    output.finish()
+}
+
 pub(super) fn module_error(mut error: JsError, source_url: &str, source: Option<&str>) -> JsError {
     let label = source_label(source_url, None);
     error.add_diagnostic_context(&format!("module source={}", bounded_text(&label, 96)));

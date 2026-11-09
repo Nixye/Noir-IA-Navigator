@@ -90,6 +90,9 @@ impl Runtime {
         property: &str,
     ) -> Result<bool, JsError> {
         self.tick()?;
+        if self.is_global_object(object) {
+            return Ok(self.global_own_property(property).is_some());
+        }
         if *object == Value::Native("Symbol") {
             let storage = self.symbol_constructor_storage()?;
             return self.has_own_property(&storage, property);
@@ -226,6 +229,9 @@ impl Runtime {
                         || crate::callables::callable_method(property).is_some());
                 }
                 Value::Host(id) if Some(id) == host.global_object() => {
+                    if self.global_deleted(property) {
+                        return Ok(false);
+                    }
                     if self.global_own_property(property).is_some()
                         || intrinsic_global(property).is_some()
                         || host.global(property).is_some()
@@ -254,8 +260,15 @@ impl Runtime {
     ) -> Result<Value, JsError> {
         let result = match expression {
             Expr::Name(name) => {
-                if self.lookup_binding(scope, name).is_some() {
-                    false
+                if let Some(scope) = self.lookup_binding(scope, name) {
+                    if scope == 0
+                        && self.scopes[0].bindings[name].global_property
+                        && let Some(id) = host.global_object()
+                    {
+                        self.delete_property(Value::Host(id), name, host)?
+                    } else {
+                        false
+                    }
                 } else if let Some(id) = host.global_object() {
                     self.delete_property(Value::Host(id), name, host)?
                 } else {
@@ -388,33 +401,7 @@ impl Runtime {
                 Ok(true)
             }
             Value::Host(id) if Some(id) == host.global_object() => {
-                if self.scopes[0]
-                    .bindings
-                    .get(property)
-                    .is_some_and(|binding| binding.global_property)
-                    || matches!(property, "undefined" | "NaN" | "Infinity")
-                {
-                    return Ok(false);
-                }
-                if let Some(id) = self.global_properties {
-                    let Some(Heap::Object(object)) = self.heap.get_mut(id) else {
-                        return Err(JsError::runtime("Invalid global property object"));
-                    };
-                    if object.properties.remove(property).is_some() {
-                        return Ok(true);
-                    }
-                }
-                if intrinsic_global(property).is_some() || host.global(property).is_some() {
-                    return Err(JsError::runtime(
-                        "Deletion of host/intrinsic globals is not implemented",
-                    ));
-                }
-                if host.has_property(id, property)? {
-                    return Err(JsError::runtime(
-                        "Deletion of host properties is not implemented",
-                    ));
-                }
-                Ok(true)
+                self.delete_global_property(property, host)
             }
             Value::Host(_) => Err(JsError::runtime(
                 "Deletion of host properties is not implemented",

@@ -864,4 +864,32 @@ mod tests {
             .unwrap();
         assert_output_text(&session, &page, "Custom updated");
     }
+
+    #[test]
+    fn failed_dynamic_load_warning_survives_reflow_without_duplication() {
+        let document = input(
+            "<p>safe</p><script>var s=document.createElement('script');s.src='PRIVATE_SOURCE.js?PRIVATE_TOKEN';document.head.appendChild(s);</script>",
+        );
+        let mut session = RenderSession::new(&document).unwrap();
+        let pending = session.take_script_requests();
+        assert_eq!(pending.len(), 1);
+        session
+            .complete_scripts(&[browser_ipc::DynamicScriptResponse {
+                id: pending[0].id,
+                source: None,
+            }])
+            .unwrap();
+        let first = session.render(Viewport::default()).unwrap();
+        let second = session
+            .render(Viewport {
+                width: 640.,
+                height: 480.,
+            })
+            .unwrap();
+        assert_eq!(first.warnings, second.warnings);
+        assert_eq!(first.warnings.len(), 1);
+        assert!(first.warnings[0].contains("phase=load"));
+        assert!(!first.warnings[0].contains("PRIVATE"));
+        assert!(session.take_script_requests().is_empty());
+    }
 }

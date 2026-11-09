@@ -337,6 +337,9 @@ impl Runtime {
     }
 
     fn heap_owner_for(&mut self, value: &Value, operation: &str) -> Result<usize, JsError> {
+        if self.is_global_object(value) {
+            return self.global_storage();
+        }
         match value {
             Value::Native("Symbol") => self.symbol_constructor_owner(),
             Value::Native(_) | Value::Host(_) => Err(self.exotic_descriptor_error(
@@ -353,6 +356,9 @@ impl Runtime {
         }
     }
     fn descriptor_owner(&mut self, value: &Value, operation: &str) -> Result<usize, JsError> {
+        if self.is_global_object(value) {
+            return self.global_storage();
+        }
         match value {
             Value::Native("Symbol") => self.symbol_constructor_owner(),
             Value::Object(id) => match self.heap.get(*id) {
@@ -438,6 +444,9 @@ impl Runtime {
     ) -> Result<Option<Descriptor>, JsError> {
         if *object == Value::Native("Function.prototype") {
             return self.function_prototype_descriptor(property);
+        }
+        if self.is_global_object(object) {
+            return self.global_descriptor(property, host);
         }
         let id = self.descriptor_owner(object, "getOwnPropertyDescriptor")?;
         if let Some(present) = self.stdlib_own_index(object, property) {
@@ -527,6 +536,9 @@ impl Runtime {
         value: Value,
         host: &mut impl Host,
     ) -> Result<Assignment, JsError> {
+        if self.is_global_object(object) {
+            return self.global_assignment(property, value, object.clone(), host);
+        }
         if !matches!(
             object,
             Value::Object(_) | Value::Array(_) | Value::Function(_) | Value::Native("Symbol")
@@ -690,13 +702,16 @@ impl Runtime {
         Ok(result)
     }
 
-    fn define_property(
+    pub(super) fn define_property(
         &mut self,
         object: &Value,
         property: &str,
         definition: Definition,
         host: &mut impl Host,
     ) -> Result<(), JsError> {
+        if self.is_global_object(object) {
+            return self.define_global_property(property, definition, host);
+        }
         let id = self.descriptor_owner(object, "defineProperty")?;
         if let Some(result) = self.stdlib_define_index(object, property, &definition, host)? {
             return if result {
@@ -927,6 +942,11 @@ impl Runtime {
         Ok(true)
     }
     pub(super) fn own_names(&mut self, object: &Value) -> Result<Vec<String>, JsError> {
+        if self.is_global_object(object) {
+            return Err(
+                self.property_type_error("Complete global own-key enumeration is not implemented")
+            );
+        }
         let id = self.heap_owner_for(object, "own-property-names")?;
         let scan_work = match &self.heap[id] {
             Heap::Vacant => return Err(JsError::runtime("Collected property owner")),
@@ -1083,6 +1103,7 @@ impl Runtime {
         args: &[Value],
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
+        self.capture_global_object(host)?;
         let object = args.first().cloned().unwrap_or(Value::Undefined);
         if name == "Object.getOwnPropertySymbols" {
             let owner = self.heap_owner_for(&object, name)?;

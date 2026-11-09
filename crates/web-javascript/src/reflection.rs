@@ -479,11 +479,20 @@ impl Runtime {
                                 .is_none_or(|metadata| metadata.enumerable))
                 } else {
                     let key = self.text(&first, 0)?;
-                    self.has_own_property(&object, &key)?
-                        && (name == "Object.hasOwnProperty" || {
-                            let owner = self.heap_owner(&object)?;
-                            self.own_enumerable(owner, &key)
-                        })
+                    if self.is_global_object(&object) {
+                        if name == "Object.hasOwnProperty" {
+                            self.global_has_own(&key, host)?
+                        } else {
+                            self.global_descriptor(&key, host)?
+                                .is_some_and(|d| d.metadata.enumerable)
+                        }
+                    } else {
+                        self.has_own_property(&object, &key)?
+                            && (name == "Object.hasOwnProperty" || {
+                                let owner = self.heap_owner(&object)?;
+                                self.own_enumerable(owner, &key)
+                            })
+                    }
                 };
                 Value::Bool(present)
             }
