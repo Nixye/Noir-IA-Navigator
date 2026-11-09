@@ -37,6 +37,7 @@ mod regexp_runtime;
 mod resumable;
 mod resumable_functions;
 mod runtime_support;
+mod scripts;
 mod stdlib;
 mod strict_validation;
 mod strings;
@@ -234,6 +235,20 @@ pub trait Host {
         ))
     }
     fn set(&mut self, object: u64, property: &str, value: Value) -> Result<(), JsError>;
+    /// Allows host setters to synchronously evaluate a nested script in this VM.
+    /// Retained VM values must be traced with trace_roots or retain_value.
+    fn set_with_runtime(
+        &mut self,
+        object: u64,
+        property: &str,
+        value: Value,
+        _runtime: &mut Runtime,
+    ) -> Result<(), JsError> {
+        self.set(object, property, value)
+    }
+    /// Ends an outer script evaluation before its microtask checkpoint, also
+    /// on errors. Nested scripts restore their own host context instead.
+    fn script_evaluation_finished(&mut self) {}
     fn call(&mut self, object: u64, method: &str, args: &[Value]) -> Result<Value, JsError>;
     fn call_with_this(
         &mut self,
@@ -382,6 +397,7 @@ pub struct Runtime {
     property_metadata: BTreeMap<usize, BTreeMap<String, descriptors::PropertyMetadata>>,
     deleted_synthetics: BTreeMap<usize, BTreeSet<String>>,
     dynamic_depth: usize,
+    nested_script_depth: usize,
     dynamic_source_bytes: usize,
     bound_functions: BTreeMap<usize, callables::BoundFunction>,
     stdlib: stdlib::StdlibState,
@@ -460,6 +476,7 @@ impl Runtime {
             property_metadata: BTreeMap::new(),
             deleted_synthetics: BTreeMap::new(),
             dynamic_depth: 0,
+            nested_script_depth: 0,
             dynamic_source_bytes: 0,
             bound_functions: BTreeMap::new(),
             stdlib: stdlib::StdlibState::default(),
@@ -489,45 +506,6 @@ impl Runtime {
     pub fn remaining_instructions(&self) -> u64 {
         self.remaining
     }
-    /// Parsing completes before any script effect. Errors never skip syntax.
-    pub fn execute(&mut self, source: &str, host: &mut impl Host) -> Result<Value, JsError> {
-        self.collect_garbage(&[], host)?;
-        let input_offset = self.call_depth == 0
-            && self.eval_depth == 0
-            && self.dynamic_depth == 0
-            && !self.resumable_execution_active();
-        let statements = parser::parse(source).map_err(|mut error| {
-            if input_offset {
-                error.mark_input_source_offset();
-            }
-            error
-        })?;
-        dynamic_code::validate_list(&statements, &[], true)?;
-        strict_validation::validate(&statements, false)?;
-        self.charge_string(source.len())?;
-        if !self.scopes[0].bindings.contains_key("this")
-            && let Some(value) = host.global("this")
-        {
-            self.declare(0, "this", false, true)?;
-            self.scopes[0].bindings.get_mut("this").unwrap().value = value;
-        }
-        let previous = self.strict;
-        self.strict = strict_validation::strict_directive(&statements);
-        let result = self.block(&statements, 0, host);
-        self.strict = previous;
-        let result = result.and_then(|flow| match flow {
-            Flow::Normal(v) => Ok(v),
-            Flow::Empty => Ok(Value::Undefined),
-            _ => Err(JsError::runtime("Invalid top-level completion")),
-        });
-        if !result
-            .as_ref()
-            .is_err_and(|error| error.kind == ErrorKind::Resource)
-        {
-            self.drain_execution_jobs(host)?;
-        }
-        result
-    }
     /// Host scheduling boundary: ordinary microtasks precede cleanup work.
     fn drain_execution_jobs(&mut self, host: &mut impl Host) -> Result<(), JsError> {
         let mut microtask_work = 0;
@@ -548,7 +526,7 @@ impl Runtime {
         if !result
             .as_ref()
             .is_err_and(|error| error.kind == ErrorKind::Resource)
-            && self.call_depth == 0
+            && self.execution_job_boundary()
         {
             self.drain_execution_jobs(host)?;
         }
@@ -569,7 +547,7 @@ impl Runtime {
         if !result
             .as_ref()
             .is_err_and(|error| error.kind == ErrorKind::Resource)
-            && self.call_depth == 0
+            && self.execution_job_boundary()
         {
             self.drain_execution_jobs(host)?;
         }
@@ -2111,7 +2089,7 @@ impl Runtime {
                     return Ok(());
                 }
                 if host.global_accessor(property) {
-                    return host.set(id, property, value);
+                    return host.set_with_runtime(id, property, value, self);
                 }
                 if self.scopes[0]
                     .bindings
@@ -2134,7 +2112,7 @@ impl Runtime {
                 };
                 self.set(Value::Object(properties), property, value, host)
             }
-            Value::Host(id) => host.set(id, property, value),
+            Value::Host(id) => host.set_with_runtime(id, property, value, self),
             Value::Function(id) => {
                 self.note_property_insertion(id, property);
                 if matches!(self.heap.get(id),Some(Heap::Function(function)) if !function.properties.contains_key(property))

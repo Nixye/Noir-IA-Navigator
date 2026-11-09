@@ -241,3 +241,210 @@ fn real_worker_rejects_unsolicited_completions_before_evaluation() {
     drop(stdin);
     assert!(child.wait().unwrap().success());
 }
+
+#[test]
+fn inline_insertion_is_synchronous_and_then_brokers_external_in_the_same_session() {
+    let directory = tempfile::tempdir().unwrap();
+    fs::write(
+        directory.path().join("remote.js"),
+        r#"
+            order += '|' + document.currentScript.id;
+            output.textContent = order;
+            queueMicrotask(function() {
+                order += document.currentScript === null ? '|remote-job:null' : '|BAD';
+                output.textContent = order;
+            });
+        "#,
+    )
+    .unwrap();
+    let inline = r#"
+        order += '|' + document.currentScript.id;
+        output.textContent = 'inline-now';
+        var remote = document.createElement('script');
+        remote.id = 'remote';
+        remote.src = 'remote.js';
+        remote.onload = function() {
+            order += document.currentScript === null ? '|load:null' : '|BAD';
+            output.textContent = order;
+        };
+        document.head.appendChild(remote);
+        queueMicrotask(function() {
+            order += document.currentScript === null ? '|inline-job:null' : '|BAD';
+            output.textContent = order;
+        });
+    "#;
+    let html = format!(
+        r#"<p id=state>waiting</p><script id=initial>
+            var output = document.getElementById('state');
+            var order = document.currentScript.id;
+            var inline = document.createElement('script');
+            inline.id = 'inline';
+            inline.text = {};
+            document.head.appendChild(inline);
+            order += '|after:' + output.textContent + ':' + document.currentScript.id;
+            output.textContent = order;
+            queueMicrotask(function() {{
+                order += document.currentScript === null ? '|parent-job:null' : '|BAD';
+                output.textContent = order;
+            }});
+        </script>"#,
+        serde_json::to_string(inline).unwrap()
+    );
+    let input = document(directory.path(), &html);
+    assert!(input.scripts.is_empty());
+    let (mut session, first) =
+        browser_process::RendererSession::spawn(executable(), input, Viewport::default()).unwrap();
+    assert_eq!(
+        text(&first),
+        "initial|inline|after:inline-now:initial|inline-job:null|parent-job:null|remote|remote-job:null|load:null",
+        "warnings: {:?}",
+        first.warnings
+    );
+    assert!(first.warnings.is_empty(), "{:?}", first.warnings);
+    let reflow = session.render(Viewport::default(), None).unwrap();
+    assert_eq!(reflow.metrics.worker_pid, first.metrics.worker_pid);
+    assert_ne!(first.metrics.worker_pid, std::process::id());
+    assert_eq!(text(&reflow), text(&first));
+}
+
+#[test]
+fn one_shot_and_real_snapshot_replay_execute_inline_but_never_fetch_queued_sources() {
+    use browser_cli::snapshot::{self, Snapshot};
+    use std::process::Command;
+
+    let directory = tempfile::tempdir().unwrap();
+    fs::write(
+        directory.path().join("external.js"),
+        "document.getElementById('state').textContent = 'UNEXPECTED-EXTERNAL-IO';",
+    )
+    .unwrap();
+    let inline = r#"
+        document.getElementById('state').textContent = 'inline-synchronous';
+        var remote = document.createElement('script');
+        remote.src = 'external.js';
+        document.head.appendChild(remote);
+    "#;
+    let input = document(
+        directory.path(),
+        &format!(
+            r#"<p id=state>waiting</p><script>
+                var inline = document.createElement('script');
+                inline.textContent = {};
+                document.head.appendChild(inline);
+                document.getElementById('state').textContent += '-parent-resumed';
+            </script>"#,
+            serde_json::to_string(inline).unwrap()
+        ),
+    );
+    assert!(input.scripts.is_empty());
+    let check_page = |page: &RenderedPage| {
+        assert_eq!(
+            text(page),
+            "inline-synchronous-parent-resumed",
+            "warnings: {:?}",
+            page.warnings
+        );
+        assert!(
+            page.warnings
+                .iter()
+                .any(|warning| warning.contains("retained renderer session")),
+            "{:?}",
+            page.warnings
+        );
+    };
+    let page =
+        browser_process::render_in_subprocess(executable(), input.clone(), Viewport::default())
+            .unwrap();
+    check_page(&page);
+    let snapshot_path = directory.path().join("inline.noir-snapshot");
+    snapshot::save_new(
+        &snapshot_path,
+        &Snapshot {
+            document: input,
+            viewport: Viewport::default(),
+        },
+    )
+    .unwrap();
+    // The first replay still has a valid root and real external source: an
+    // accidental switch to the live broker would visibly run that source.
+    for originals_present in [true, false] {
+        if !originals_present {
+            fs::remove_file(directory.path().join("index.html")).unwrap();
+            fs::remove_file(directory.path().join("external.js")).unwrap();
+        }
+        let output = Command::new(executable())
+            .arg("replay")
+            .arg(&snapshot_path)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let page: RenderedPage = serde_json::from_slice(&output.stdout).unwrap();
+        check_page(&page);
+    }
+}
+
+#[test]
+fn real_session_isolates_inline_errors_but_resource_failure_rolls_back_and_stops_work() {
+    use std::time::{Duration, Instant};
+
+    let directory = tempfile::tempdir().unwrap();
+    let ordinary = document(
+        directory.path(),
+        r#"<p id=state>safe</p><script>
+            var output = document.getElementById('state');
+            var caught = 0;
+            window.onerror = function() { output.textContent += '-reported'; };
+            var inline = document.createElement('script');
+            inline.innerHTML = "output.textContent = 'inline';throw 'ordinary';";
+            try { document.head.appendChild(inline); } catch (error) { caught++; }
+            output.textContent += '-after-caught:' + caught;
+        </script>"#,
+    );
+    let (_session, ordinary_page) =
+        browser_process::RendererSession::spawn(executable(), ordinary, Viewport::default())
+            .unwrap();
+    assert_eq!(
+        text(&ordinary_page),
+        "inline-reported-after-caught:0",
+        "warnings: {:?}",
+        ordinary_page.warnings
+    );
+    fs::write(
+        directory.path().join("must-not-run.js"),
+        "document.getElementById('state').textContent = 'BAD-external';",
+    )
+    .unwrap();
+    let resource = document(
+        directory.path(),
+        r#"<title>Safe</title><p id=state>safe</p><script>
+            document.getElementById('state').textContent = 'BAD-outer';
+            var remote = document.createElement('script');
+            remote.src = 'must-not-run.js';
+            document.head.appendChild(remote);
+            setTimeout(function() { document.getElementById('state').textContent = 'BAD-timer'; }, 1);
+            var inline = document.createElement('script');
+            inline.text = 'while (true) {}';
+            try { document.head.appendChild(inline); } catch (error) { document.title = 'BAD-caught'; }
+            document.getElementById('state').textContent = 'BAD-resumed';
+        </script>"#,
+    );
+    let started = Instant::now();
+    let (mut session, resource_page) =
+        browser_process::RendererSession::spawn(executable(), resource, Viewport::default())
+            .unwrap();
+    assert!(started.elapsed() < Duration::from_secs(10));
+    assert_eq!(text(&resource_page), "safe");
+    assert_eq!(resource_page.title, "Safe");
+    assert!(
+        !resource_page.warnings.is_empty(),
+        "Resource failure must not silently succeed"
+    );
+    let later = session.advance_timers(Viewport::default(), 10).unwrap();
+    assert_eq!(later.metrics.worker_pid, resource_page.metrics.worker_pid);
+    assert_eq!(text(&later), "safe");
+    assert_eq!(later.title, "Safe");
+}

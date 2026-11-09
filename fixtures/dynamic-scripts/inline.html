@@ -1,0 +1,14 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Inline dinâmico síncrono</title>
+<h1>Inline dinâmico na VM própria</h1>
+<p id="result">Aguardando execução.</p>
+<script id="bootstrap">
+var order='initial:'+document.currentScript.id;
+var inserted=document.createElement('script');
+inserted.id='inserted';
+inserted.text="order+='|inline:'+document.currentScript.id;queueMicrotask(function(){order+='|microtask:'+String(document.currentScript);document.getElementById('result').textContent=order;});";
+document.head.appendChild(inserted);
+order+='|returned:'+document.currentScript.id;
+document.getElementById('result').textContent=order;
+</script>

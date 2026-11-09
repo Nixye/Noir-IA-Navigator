@@ -39,6 +39,7 @@ impl Runtime {
         if self.call_depth != 0
             || self.eval_depth != 0
             || self.dynamic_depth != 0
+            || self.nested_script_depth != 0
             || self.resumable_execution_active()
             || self.finalization_registries.draining
         {

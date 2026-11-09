@@ -1,6 +1,6 @@
 use super::*;
 
-fn session() -> DocumentSession {
+pub(super) fn session() -> DocumentSession {
     let mut session =
         DocumentSession::new(web_html::parse("<body><p id=out>pending</p></body>").unwrap());
     session
@@ -8,13 +8,13 @@ fn session() -> DocumentSession {
         .unwrap();
     session
 }
-fn response(id: u64, source: Option<&str>) -> DynamicScriptResponse {
+pub(super) fn response(id: u64, source: Option<&str>) -> DynamicScriptResponse {
     DynamicScriptResponse {
         id,
         source: source.map(str::to_owned),
     }
 }
-fn check(session: &mut DocumentSession, source: &str) {
+pub(super) fn check(session: &mut DocumentSession, source: &str) {
     assert_eq!(session.execute(source).unwrap(), Value::Bool(true));
 }
 
@@ -190,7 +190,7 @@ fn invalid_sources_dispatch_error_and_unsupported_modules_remain_explicit() {
     assert_eq!(s.take_script_requests()[0].src, "noir-invalid-script:");
     let error = s.execute("var m=document.createElement('script');m.type='module';m.src='a.mjs';document.head.appendChild(m);").unwrap_err();
     assert!(error.message.contains("Dynamic module"));
-    let error = s.execute("var inline=document.createElement('script');inline.text='var notRun=true;';document.body.appendChild(inline);").unwrap_err();
-    assert!(error.message.contains("Dynamic inline"));
+    s.execute("var inline=document.createElement('script');inline.text='var ranInline=true;';document.body.appendChild(inline);").unwrap();
+    check(&mut s, "ranInline===true;");
     assert!(!s.scripts_disabled);
 }

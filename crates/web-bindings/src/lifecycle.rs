@@ -196,7 +196,12 @@ impl DocumentSession {
     ) -> bool {
         let result = match &script {
             InitialScript::Classic(source) if source.trim().is_empty() => return true,
-            InitialScript::Classic(source) => self.execute(source),
+            InitialScript::Classic(source) => {
+                self.state.dynamic_scripts.current = Some(origin.node);
+                let result = self.execute(source);
+                self.state.dynamic_scripts.current = None;
+                result
+            }
             InitialScript::Module(url) => self.execute_registered_module(url),
         };
         match result {

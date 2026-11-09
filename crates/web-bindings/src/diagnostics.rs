@@ -96,7 +96,7 @@ pub(super) fn source_label(src: &str, base: Option<&url::Url>) -> String {
 #[derive(Debug)]
 pub(super) struct ScriptOrigin {
     index: usize,
-    node: NodeId,
+    pub(super) node: NodeId,
     kind: &'static str,
     schedule: &'static str,
     source: String,

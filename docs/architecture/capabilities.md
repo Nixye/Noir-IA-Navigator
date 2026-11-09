@@ -176,4 +176,11 @@ O [segundo recorte do item 3](../releases/2026-11-08-shared-dom-selectors.md) su
 
 Implementação real e limitada de scripts clássicos externos criados por createElement('script') em sessões retidas: src antes/depois da inserção, captura única da fonte, callbacks load/error, cargas encadeadas e ordem serial. IPC v9 com correlação de IDs, recusa de replay e limites de 32 tentativas, 128 KiB por fonte e 512 KiB cumulativos. Rede só com sandbox verificada; arquivos .js só dentro da raiz local original. O renderer não recebe I/O. CLI one-shot/replay continuam offline e avisam sobre pedidos não atendidos.
 
-Não inclui scripts inline dinâmicos, módulos/import() sob demanda, paralelismo async, coordenação completa com eventos de carregamento, CSP/SRI ou compatibilidade geral com sites. A navegação remota continua fechada no Linux. Contrato e testes no [ADR 0023](../adr/0023-brokered-dynamic-classic-scripts.md); fixture em fixtures/dynamic-scripts/index.html.
+O [ADR 0024](../adr/0024-synchronous-dynamic-inline-scripts.md) acrescenta inline dinâmico síncrono por text/textContent/inserção, com execução global limitada, currentScript inicial/aninhado e checkpoints que aguardam o JavaScript pai. Inline e externo compartilham as quotas dinâmicas; fontes inline não recebem autoridade de I/O.
+
+Não inclui módulos/import() sob demanda, paralelismo async, coordenação completa com eventos de carregamento, CSP/SRI ou compatibilidade geral com sites. A navegação remota continua fechada no Linux. Contrato do broker no [ADR 0023](../adr/0023-brokered-dynamic-classic-scripts.md); fixtures em fixtures/dynamic-scripts/.
+
+
+## Coleções DOM vivas por tag — 2026-11-09
+
+Document/Element.getElementsByTagName retorna coleção viva com length, índices, item e namedItem, em ordem da árvore. Inserções, remoções, innerHTML e mudanças de id/name são observadas nas leituras seguintes; raízes destacadas e padrão de loader com primeiro script são cobertos. Até 64 consultas distintas, nomes de 1024 bytes e orçamento de leitura compartilhado. Sem namespaces/XML, protótipos/descritores Host completos, expandos ou iteração por símbolo; Array.from usa array-like. querySelectorAll permanece snapshot. [Escopo e validação](../releases/2026-11-09-live-tag-collections.md).

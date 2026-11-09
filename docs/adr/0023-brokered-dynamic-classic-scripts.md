@@ -1,5 +1,7 @@
 # ADR 0023: Scripts clássicos dinâmicos mediados pelo broker
 
+Este ADR descreve o primeiro recorte externo. O [ADR 0024](0024-synchronous-dynamic-inline-scripts.md) acrescenta inline síncrono e completa currentScript para as avaliações clássicas e seus checkpoints, sem ampliar I/O.
+
 ## Decisão
 
 O IPC v9 acrescenta pedidos `DynamicScriptRequest { id, src }` na resposta do renderer e conclusões `DynamicScriptResponse { id, source }` na operação `Scripts`. `source: None` comunica falha sem revelar caminhos, mensagens do transporte ou dados privilegiados. Os crates `web-*` continuam sem leitura de arquivos, cliente HTTP ou resolução DNS.

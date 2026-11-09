@@ -13,6 +13,7 @@ mod crypto_context_tests;
 #[cfg(test)]
 mod promise_host_tests;
 pub use animation::MAX_ANIMATION_FRAME_TIMESTAMP_MS;
+mod collections;
 mod diagnostics;
 mod dynamic_scripts;
 mod events;
@@ -55,7 +56,7 @@ const CUSTOM_EVENT_CONSTRUCTOR: u64 = 15;
 const DISPATCH_WINDOW_EVENT: u64 = 16;
 const MAX_DISPATCH_DEPTH: usize = 32;
 const DOCUMENT_METHOD: u64 = 40;
-const DOCUMENT_METHODS: [&str; 14] = [
+const DOCUMENT_METHODS: [&str; 15] = [
     "getElementById",
     "querySelector",
     "querySelectorAll",
@@ -70,6 +71,7 @@ const DOCUMENT_METHODS: [&str; 14] = [
     "hasChildNodes",
     "contains",
     "dispatchEvent",
+    "getElementsByTagName",
 ];
 const EVENT_METHOD: u64 = 21;
 const EVENT_METHODS: [&str; 3] = [
@@ -85,7 +87,7 @@ const CONSOLE_METHOD: u64 = 120_010;
 const CONSOLE_METHODS: [&str; 5] = ["log", "info", "warn", "error", "debug"];
 const NODE: u64 = 100;
 const NODE_METHOD: u64 = 100_000;
-const NODE_METHODS: [&str; 19] = [
+const NODE_METHODS: [&str; 20] = [
     "appendChild",
     "insertBefore",
     "removeChild",
@@ -105,6 +107,7 @@ const NODE_METHODS: [&str; 19] = [
     "removeEventListener",
     "cloneNode",
     "dispatchEvent",
+    "getElementsByTagName",
 ];
 const STYLE: u64 = 1_000_000;
 const CLASS: u64 = 2_000_000;
@@ -171,6 +174,7 @@ struct State {
     timers: Vec<Timer>,
     animation: animation::AnimationState,
     lists: Vec<Vec<NodeId>>,
+    collections: collections::Collections,
     next_timer: u64,
     clock: u64,
     mutations: usize,
@@ -1079,10 +1083,15 @@ impl DomHost<'_> {
             | "removeEventListener"
             | "dispatchEvent" => true,
             "cloneNode" | "remove" => !matches!(self.document.nodes[id].kind, NodeKind::Document),
-            "getAttribute" | "setAttribute" | "hasAttribute" | "removeAttribute" | "matches"
-            | "closest" | "querySelector" | "querySelectorAll" => {
-                self.document.element(id).is_some()
-            }
+            "getAttribute"
+            | "setAttribute"
+            | "hasAttribute"
+            | "removeAttribute"
+            | "matches"
+            | "closest"
+            | "querySelector"
+            | "querySelectorAll"
+            | "getElementsByTagName" => self.document.element(id).is_some(),
             _ => false,
         }
     }
@@ -1458,7 +1467,11 @@ impl DomHost<'_> {
                 unreachable!()
             };
             *current = text;
-            return Ok(());
+            return if let Some(parent) = self.document.nodes[id].parent {
+                self.prepare_dynamic_script(parent)
+            } else {
+                Ok(())
+            };
         }
         self.charge_tree_read(self.document.nodes[id].children.len())?;
         if !text.is_empty() {
@@ -1669,6 +1682,19 @@ fn event_handler_kind(property: &str) -> Option<&str> {
     })
 }
 impl Host for DomHost<'_> {
+    fn script_evaluation_finished(&mut self) {
+        self.state.dynamic_scripts.current = None;
+    }
+    fn set_with_runtime(
+        &mut self,
+        object: u64,
+        property: &str,
+        value: Value,
+        runtime: &mut Runtime,
+    ) -> Result<(), JsError> {
+        self.set(object, property, value)?;
+        self.run_inline_scripts(runtime)
+    }
     fn random_u64(&mut self) -> Result<u64, JsError> {
         self.state.platform.random_u64()
     }
@@ -1734,7 +1760,8 @@ impl Host for DomHost<'_> {
             )
     }
     fn is_callable(&self, object: u64) -> bool {
-        (DOCUMENT_METHOD..DOCUMENT_METHOD + DOCUMENT_METHODS.len() as u64).contains(&object)
+        collections::is_method(object)
+            || (DOCUMENT_METHOD..DOCUMENT_METHOD + DOCUMENT_METHODS.len() as u64).contains(&object)
             || (NODE_METHOD..NODE_METHOD + NODE_METHODS.len() as u64).contains(&object)
             || (NAVIGATOR_METHOD..NAVIGATOR_METHOD + NAVIGATOR_METHODS.len() as u64)
                 .contains(&object)
@@ -1793,6 +1820,9 @@ impl Host for DomHost<'_> {
         }))
     }
     fn has_property(&mut self, object: u64, property: &str) -> Result<bool, JsError> {
+        if let Some(value) = self.collection_has(object, property)? {
+            return Ok(value);
+        }
         if matches!(object, animation::REQUEST | animation::CANCEL) {
             return Ok(matches!(property, "name" | "length"));
         }
@@ -2053,6 +2083,9 @@ impl Host for DomHost<'_> {
         ))
     }
     fn get(&mut self, object: u64, property: &str) -> Result<Value, JsError> {
+        if let Some(value) = self.collection_get(object, property)? {
+            return Ok(value);
+        }
         if matches!(object, animation::REQUEST | animation::CANCEL) {
             return Ok(match property {
                 "length" => Value::Number(1.),
@@ -2462,6 +2495,11 @@ impl Host for DomHost<'_> {
         }
     }
     fn set(&mut self, object: u64, property: &str, value: Value) -> Result<(), JsError> {
+        if collections::is_collection(object) {
+            return Err(JsError::runtime(
+                "HTMLCollection writes and expandos are not implemented",
+            ));
+        }
         if object == storage::OBJECT || object == WINDOW && property == "sessionStorage" {
             return Err(JsError::runtime(
                 "Session storage properties are read-only; use storage methods",
@@ -2627,7 +2665,8 @@ impl Host for DomHost<'_> {
                         JsError::runtime(message)
                     }
                 })?;
-                self.import_fragment(id, &fragment, true)
+                self.import_fragment(id, &fragment, true)?;
+                self.prepare_dynamic_script(id)
             }
             "disabled" | "checked" => {
                 self.mutate(0)?;
@@ -2668,6 +2707,9 @@ impl Host for DomHost<'_> {
         this: &Value,
         runtime: &mut Runtime,
     ) -> Result<Value, JsError> {
+        if collections::is_method(object) || collections::is_collection(object) {
+            return self.collection_call(object, method, args, this, runtime);
+        }
         if matches!(object, animation::REQUEST | animation::CANCEL) {
             return self.animation_call(object, method, args, this, runtime);
         }
@@ -2717,6 +2759,16 @@ impl Host for DomHost<'_> {
             None
         };
         let (target, name) = alias.unwrap_or((object, method));
+        if name == "getElementsByTagName" {
+            if (NODE_METHOD..NODE_METHOD + NODE_METHODS.len() as u64).contains(&object)
+                && target == DOC
+            {
+                return Err(JsError::runtime(
+                    "Element tag queries require an Element receiver",
+                ));
+            }
+            return self.tag_collection(target, args, runtime);
+        }
         if name == "dispatchEvent"
             && (target == WINDOW || target == DOC || self.node(target).is_ok())
         {
@@ -2778,7 +2830,9 @@ impl Host for DomHost<'_> {
                 .ok_or_else(|| JsError::runtime("Listener callback required"))?;
             return self.listener_call(target, name, &[Value::string(kind), callback], options);
         }
-        self.call_with_this(object, method, args, this)
+        let result = self.call_with_this(object, method, args, this)?;
+        self.run_inline_scripts(runtime)?;
+        Ok(result)
     }
     fn call_with_this(
         &mut self,

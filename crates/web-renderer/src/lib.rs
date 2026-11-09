@@ -139,6 +139,13 @@ impl RenderSession {
         let mut warnings = self.warnings.clone();
         warnings.extend(computed.warnings);
         warnings.extend(layout.warnings);
+        warnings.extend(
+            self.session
+                .dynamic_script_warnings()
+                .iter()
+                .take(browser_ipc::MAX_PAGE_WARNINGS.saturating_sub(warnings.len()))
+                .cloned(),
+        );
         Ok(RenderedPage {
             title: dom.title().chars().take(1024).collect(),
             width: layout.width,

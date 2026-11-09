@@ -15,6 +15,13 @@ struct Pending {
     sent: bool,
 }
 
+#[derive(Debug, Clone)]
+struct InlineScript {
+    index: usize,
+    node: NodeId,
+    source: String,
+}
+
 #[derive(Debug, Clone, Default)]
 pub(super) struct DynamicScripts {
     // Only script elements made by createElement (and their unstarted clones)
@@ -23,6 +30,8 @@ pub(super) struct DynamicScripts {
     started: BTreeSet<NodeId>,
     pub ordered: BTreeSet<NodeId>,
     pending: Vec<Pending>,
+    inline: Vec<InlineScript>,
+    warnings: Vec<String>,
     attempts: usize,
     source_bytes: usize,
     pub current: Option<NodeId>,
@@ -31,6 +40,7 @@ pub(super) struct DynamicScripts {
 impl DynamicScripts {
     pub(super) fn clear(&mut self) {
         self.pending.clear();
+        self.inline.clear();
         self.current = None;
     }
 
@@ -97,12 +107,7 @@ impl DomHost<'_> {
             return Ok(());
         }
         let Some(src) = element.attr("src") else {
-            if !self.document.nodes[node].children.is_empty() {
-                return Err(JsError::runtime(
-                    "Dynamic inline scripts are not implemented",
-                ));
-            }
-            return Ok(());
+            return self.prepare_inline_script(node);
         };
         if src.len() > MAX_DYNAMIC_SCRIPT_SRC_BYTES {
             return Err(JsError::resource("Dynamic script URL exceeds 8192 bytes"));
@@ -128,6 +133,127 @@ impl DomHost<'_> {
             node,
             sent: false,
         });
+        Ok(())
+    }
+
+    fn prepare_inline_script(&mut self, node: NodeId) -> Result<(), JsError> {
+        // Count borrowed text before allocating a combined source. Empty
+        // scripts remain unstarted so later text/src insertion can prepare them.
+        let mut bytes = 0usize;
+        let mut pending = vec![node];
+        while let Some(id) = pending.pop() {
+            self.charge_tree_read(1)?;
+            if let NodeKind::Text(text) = &self.document.nodes[id].kind {
+                bytes = bytes.saturating_add(text.len());
+            }
+            if bytes > MAX_DYNAMIC_SCRIPT_BYTES {
+                return Err(JsError::resource(
+                    "Dynamic inline script source exceeds 128 KiB",
+                ));
+            }
+            self.charge_tree_read(self.document.nodes[id].children.len())?;
+            pending.extend(self.document.nodes[id].children.iter().rev().copied());
+        }
+        if bytes == 0 {
+            return Ok(());
+        }
+        self.charge_tree_read(bytes)?;
+        let scripts = &mut self.state.dynamic_scripts;
+        if scripts.attempts >= MAX_DYNAMIC_SCRIPTS
+            || bytes > MAX_DYNAMIC_SCRIPT_TOTAL_BYTES.saturating_sub(scripts.source_bytes)
+        {
+            return Err(JsError::resource(
+                "Dynamic script count or source budget exceeded",
+            ));
+        }
+        scripts.attempts += 1;
+        scripts.source_bytes += bytes;
+        scripts.started.insert(node);
+        scripts.inline.push(InlineScript {
+            index: scripts.attempts - 1,
+            node,
+            source: self.document.text_content(node),
+        });
+        Ok(())
+    }
+
+    /// Flush only this mutation's captured batch. A nested insertion executes
+    /// its own batch before its caller resumes, never an outer sibling's batch.
+    pub(super) fn run_inline_scripts(&mut self, runtime: &mut Runtime) -> Result<(), JsError> {
+        let ready = std::mem::take(&mut self.state.dynamic_scripts.inline);
+        for script in ready {
+            let previous = self.state.dynamic_scripts.current.replace(script.node);
+            let result = runtime.execute_nested_script(&script.source, self);
+            self.state.dynamic_scripts.current = previous;
+            if let Err(error) = result {
+                if error.kind == ErrorKind::Resource {
+                    return Err(error);
+                }
+                // HTML script evaluation reports ordinary errors. They are not
+                // thrown by appendChild/the setter into the inserting script.
+                self.report_inline_error(
+                    runtime,
+                    script.index,
+                    script.node,
+                    &script.source,
+                    &error,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn report_inline_error(
+        &mut self,
+        runtime: &mut Runtime,
+        index: usize,
+        node: NodeId,
+        source: &str,
+        error: &JsError,
+    ) -> Result<(), JsError> {
+        let warning = diagnostics::ScriptOrigin::capture(
+            index,
+            node,
+            false,
+            false,
+            None,
+            self.state.document_url.as_ref(),
+        )
+        .warning("dynamic-inline", error, Some(source));
+        if self.state.logs.len() < 32 {
+            self.state.logs.push(warning.clone());
+        }
+        if self.state.dynamic_scripts.warnings.len() < 32 {
+            self.state.dynamic_scripts.warnings.push(warning);
+        }
+        let callback = self
+            .state
+            .listeners
+            .iter()
+            .find(|listener| {
+                listener.target == WINDOW && listener.kind == "error" && listener.property
+            })
+            .map(|listener| listener.callback.clone());
+        if let Some(callback) = callback {
+            let args = vec![
+                Value::string(error.message.chars().take(1024).collect::<String>()),
+                Value::string(""),
+                Value::Number(0.),
+                Value::Number(0.),
+                error.thrown.clone().unwrap_or(Value::Null),
+            ];
+            match runtime.invoke_with_this(callback, args, Value::Host(WINDOW), self) {
+                Err(error) if error.kind == ErrorKind::Resource => return Err(error),
+                Err(error) if self.state.logs.len() < 32 => {
+                    self.state.logs.push(diagnostics::callback_warning(
+                        "error",
+                        Some("window.onerror"),
+                        &error,
+                    ));
+                }
+                _ => {}
+            }
+        }
         Ok(())
     }
 
@@ -211,6 +337,10 @@ impl DomHost<'_> {
 }
 
 impl DocumentSession {
+    pub fn dynamic_script_warnings(&self) -> &[String] {
+        &self.state.dynamic_scripts.warnings
+    }
+
     pub fn take_script_requests(&mut self) -> Vec<DynamicScriptRequest> {
         if self.scripts_disabled {
             return Vec::new();
@@ -326,5 +456,7 @@ impl DocumentSession {
     }
 }
 
+#[cfg(test)]
+mod inline_tests;
 #[cfg(test)]
 mod tests;

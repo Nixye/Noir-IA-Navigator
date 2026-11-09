@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Coleções DOM vivas</title></head>
+<body><h1>getElementsByTagName</h1><main id="root"><p id="old">Original</p></main><div id="result">Aguardando.</div>
+<script>
+const root = document.getElementById('root');
+const items = root.getElementsByTagName('P');
+const old = items[0];
+const added = document.createElement('p');
+added.id = 'added'; added.textContent = 'Novo elemento';
+root.insertBefore(added, old);
+const inserted = items.length === 2 && items[0] === added;
+old.remove();
+const anchor = document.getElementsByTagName('script')[0];
+const marker = document.createElement('script');
+marker.type = 'application/json'; marker.id = 'marker';
+anchor.parentNode.insertBefore(marker, anchor);
+const scripts = document.getElementsByTagName('script');
+const valid = inserted && items.length === 1 && items.namedItem('added') === added
+  && items.item(1) === null && items[1] === undefined && scripts[0] === marker && scripts[1] === anchor;
+document.getElementById('result').textContent = valid ? 'Coleção viva e padrão de loader ativos.' : 'Falha nas coleções.';
+</script></body></html>
