@@ -1,4 +1,4 @@
-//! Own-property descriptors for the bounded VM heap and Symbol constructor.
+//! Own-property descriptors for the bounded VM heap and explicit intrinsic constructors.
 //! Other host/native exotics remain errors; callbacks gain no host authority.
 use crate::{Heap, Host, JsError, Runtime, Value, strict_equal};
 use std::collections::BTreeMap;
@@ -242,7 +242,8 @@ impl Runtime {
         freeze: bool,
         host: &mut impl Host,
     ) -> Result<bool, JsError> {
-        if matches!(object, Value::Host(_) | Value::Native(_)) && *object != Value::Native("Symbol")
+        if matches!(object, Value::Host(_) | Value::Native(_))
+            && !matches!(object, Value::Native("Symbol" | "Number"))
         {
             return Err(self.exotic_descriptor_error(
                 object,
@@ -252,7 +253,10 @@ impl Runtime {
         }
         if !matches!(
             object,
-            Value::Object(_) | Value::Array(_) | Value::Function(_) | Value::Native("Symbol")
+            Value::Object(_)
+                | Value::Array(_)
+                | Value::Function(_)
+                | Value::Native("Symbol" | "Number")
         ) {
             return Ok(true);
         }
@@ -341,7 +345,7 @@ impl Runtime {
             return self.global_storage();
         }
         match value {
-            Value::Native("Symbol") => self.symbol_constructor_owner(),
+            Value::Native(name @ ("Symbol" | "Number")) => self.intrinsic_constructor_owner(name),
             Value::Native(_) | Value::Host(_) => Err(self.exotic_descriptor_error(
                 value,
                 operation,
@@ -360,7 +364,7 @@ impl Runtime {
             return self.global_storage();
         }
         match value {
-            Value::Native("Symbol") => self.symbol_constructor_owner(),
+            Value::Native(name @ ("Symbol" | "Number")) => self.intrinsic_constructor_owner(name),
             Value::Object(id) => match self.heap.get(*id) {
                 Some(Heap::Object(object)) if object.regexp.is_none() => Ok(*id),
                 Some(Heap::Object(_)) => Err(JsError::runtime(
@@ -373,7 +377,7 @@ impl Runtime {
             Value::Host(_) | Value::Native(_) => Err(self.exotic_descriptor_error(
                 value,
                 operation,
-                "Host/native exotic descriptors are not implemented (except Symbol)",
+                "Host/native exotic descriptors are not implemented (except Number and Symbol)",
             )),
             _ => Err(self.property_type_error("Descriptors require an object, array or function")),
         }
@@ -541,7 +545,10 @@ impl Runtime {
         }
         if !matches!(
             object,
-            Value::Object(_) | Value::Array(_) | Value::Function(_) | Value::Native("Symbol")
+            Value::Object(_)
+                | Value::Array(_)
+                | Value::Function(_)
+                | Value::Native("Symbol" | "Number")
         ) {
             return Ok(Assignment::Store);
         }
@@ -585,7 +592,7 @@ impl Runtime {
                 });
             }
             current = match current {
-                Value::Native("Symbol") => Value::Native("Function.prototype"),
+                Value::Native("Symbol" | "Number") => Value::Native("Function.prototype"),
                 Value::Native("Function.prototype") => self.object_prototype_value()?,
                 Value::Object(id) => match &self.heap[id] {
                     Heap::Object(object) => object.prototype.clone().unwrap_or(Value::Null),
@@ -601,7 +608,10 @@ impl Runtime {
                 _ => Value::Null,
             };
             if matches!(current, Value::Host(_) | Value::Native(_))
-                && !matches!(current, Value::Native("Symbol" | "Function.prototype"))
+                && !matches!(
+                    current,
+                    Value::Native("Symbol" | "Number" | "Function.prototype")
+                )
             {
                 return Err(JsError::runtime(
                     "Assignments through Host/native prototype descriptors are not implemented",
@@ -1128,7 +1138,7 @@ impl Runtime {
                 | Value::Function(_)
                 | Value::Array(_)
                 | Value::Host(_)
-                | Value::Native("Symbol") => Some(object),
+                | Value::Native("Symbol" | "Number") => Some(object),
                 _ => {
                     return Err(
                         self.property_type_error("Object prototype must be an object or null")
@@ -1318,7 +1328,7 @@ mod diagnostic_tests {
         let previous = &error.previous_exceptions()[0];
         assert_eq!(
             previous.message,
-            "Host/native exotic descriptors are not implemented (except Symbol)"
+            "Host/native exotic descriptors are not implemented (except Number and Symbol)"
         );
         assert_eq!(
             previous.contexts,
@@ -1380,7 +1390,7 @@ mod diagnostic_tests {
         let mut runtime = Runtime::default();
         let mut host = InertHost::default();
         let result = runtime.execute(
-            "let touched=0;const key={toString:function(){touched++;return 'private-key';}};const d={};Object.defineProperty(d,'value',{get:function(){touched++;return 'private-value';}});let caught;try{Object.defineProperty(opaque,key,d);}catch(e){caught=e;}touched===0&&caught.name==='TypeError'&&caught.message==='Host/native exotic descriptors are not implemented (except Symbol)'&&caught.cause===undefined;",
+            "let touched=0;const key={toString:function(){touched++;return 'private-key';}};const d={};Object.defineProperty(d,'value',{get:function(){touched++;return 'private-value';}});let caught;try{Object.defineProperty(opaque,key,d);}catch(e){caught=e;}touched===0&&caught.name==='TypeError'&&caught.message==='Host/native exotic descriptors are not implemented (except Number and Symbol)'&&caught.cause===undefined;",
             &mut host,
         ).unwrap();
         assert_eq!(result, Value::Bool(true));
@@ -1404,7 +1414,8 @@ mod diagnostic_tests {
     fn diagnostic_allocation_is_bounded_and_does_not_change_vm_budget() {
         let mut baseline = Runtime::default();
         let mut diagnostic = baseline.clone();
-        let message = "Host/native exotic descriptors are not implemented (except Symbol)";
+        let message =
+            "Host/native exotic descriptors are not implemented (except Number and Symbol)";
         let original = baseline.property_type_error(message);
         let annotated = diagnostic.exotic_descriptor_error(
             &Value::Host(u64::MAX),

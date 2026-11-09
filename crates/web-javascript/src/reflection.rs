@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Clone, Debug, Default)]
 pub(super) struct ReflectionState {
     pub symbol_constructor: Option<usize>,
+    pub number_constructor: Option<usize>,
     pub prototypes: BTreeMap<&'static str, Value>,
     pub boxed: BTreeMap<usize, Value>,
     pub non_extensible: BTreeSet<usize>,
@@ -385,7 +386,7 @@ impl Runtime {
                 for depth in 0..64 {
                     self.tick()?;
                     current = match current {
-                        Value::Native("Symbol") => Value::Native("Function.prototype"),
+                        Value::Native("Symbol" | "Number") => Value::Native("Function.prototype"),
                         Value::Native("Function.prototype") => self.object_prototype_value()?,
                         Value::Object(id) => match self.heap.get(id) {
                             Some(Heap::Object(object)) => {
@@ -609,7 +610,7 @@ impl Runtime {
             }
             "Object.preventExtensions" | "Object.seal" | "Object.freeze" => {
                 if (matches!(first, Value::Host(_) | Value::Native(_))
-                    && first != Value::Native("Symbol"))
+                    && !matches!(first, Value::Native("Symbol" | "Number")))
                     || self.stdlib_own_keys(&first).is_some()
                     || matches!(&first,Value::Object(id) if matches!(self.heap.get(*id),Some(Heap::Object(object)) if object.regexp.is_some()))
                 {
@@ -618,7 +619,9 @@ impl Runtime {
                     ));
                 }
                 let owner = match &first {
-                    Value::Native("Symbol") => Some(self.symbol_constructor_owner()?),
+                    Value::Native(name @ ("Symbol" | "Number")) => {
+                        Some(self.intrinsic_constructor_owner(name)?)
+                    }
                     Value::Array(id) | Value::Object(id) | Value::Function(id) => Some(*id),
                     _ => None,
                 };
@@ -632,14 +635,14 @@ impl Runtime {
             }
             "Object.isExtensible" => {
                 if matches!(first, Value::Host(_) | Value::Native(_))
-                    && first != Value::Native("Symbol")
+                    && !matches!(first, Value::Native("Symbol" | "Number"))
                 {
                     return Err(self.property_type_error(
                         "Host/native extensibility inspection is not implemented",
                     ));
                 }
-                Value::Bool(if first == Value::Native("Symbol") {
-                    let owner = self.symbol_constructor_owner()?;
+                Value::Bool(if let Value::Native(name @ ("Symbol" | "Number")) = first {
+                    let owner = self.intrinsic_constructor_owner(name)?;
                     !self.reflection.non_extensible.contains(&owner)
                 } else {
                     matches!(&first,Value::Object(id)|Value::Array(id)|Value::Function(id) if !self.reflection.non_extensible.contains(id))
@@ -658,6 +661,7 @@ impl Runtime {
             .values()
             .cloned()
             .chain(self.reflection.symbol_constructor.map(Value::Object))
+            .chain(self.reflection.number_constructor.map(Value::Object))
             .collect()
     }
     pub(super) fn reflection_trace(&self, id: usize) -> Vec<Value> {

@@ -1,6 +1,36 @@
 use super::*;
 
 #[test]
+fn number_descriptor_fixture_updates_dom_and_preserves_constant_flags() {
+    let html = include_str!("../../../fixtures/javascript-number-descriptors.html");
+    let source = html
+        .split_once("<script>")
+        .unwrap()
+        .1
+        .split_once("</script>")
+        .unwrap()
+        .0;
+    let mut s = DocumentSession::new(web_html::parse(html).unwrap());
+    s.execute(source).unwrap();
+    assert!(
+        s.document
+            .text_content(0)
+            .contains("Constantes e descritores Number ativos.")
+    );
+    assert_eq!(s.execute("Number===window.Number&&globalThis.Number===Number&&Object.getOwnPropertyDescriptor(Number,'MAX_SAFE_INTEGER').configurable===false;").unwrap(),Value::Bool(true));
+}
+
+#[test]
+fn number_descriptors_share_reentrant_script_state_and_accessor_receivers() {
+    let mut s = DocumentSession::new(web_html::parse("<p></p>").unwrap());
+    s.execute("var trace='';Object.defineProperty(Number,'demo',{get:function(){return this===Number?7:0;},configurable:true});const script=document.createElement('script');script.text=\"trace+=String(Number.demo);Number.shared=17;queueMicrotask(function(){trace+='q'+String(Number.shared);});\";document.head.appendChild(script);trace+='p';").unwrap();
+    assert_eq!(
+        s.execute("trace==='7pq17'&&Number.shared===17;").unwrap(),
+        Value::Bool(true)
+    );
+}
+
+#[test]
 fn window_map_polyfill_property_and_native_constructor_are_independent() {
     let mut s = DocumentSession::new(web_html::parse("<p id=out>waiting</p>").unwrap());
     assert_eq!(s.execute("const original=Map;function Polyfill(){this.tag=23;}Object.defineProperty(window,'Map',{configurable:true,writable:true,value:Polyfill});const m=new Map();document.getElementById('out').textContent=String(m.tag);const d=Object.getOwnPropertyDescriptor(window,'Map');Map===Polyfill&&window.Map===Map&&globalThis.Map===Map&&original!==Map&&d.configurable&&d.writable&&!d.enumerable;").unwrap(),Value::Bool(true));

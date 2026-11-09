@@ -1,7 +1,7 @@
 //! Bounded own properties of the Symbol intrinsic function.
 
 use crate::{
-    Heap, JsError, Runtime, Value,
+    JsError, Runtime, Value,
     descriptors::{Descriptor, PropertyMetadata},
 };
 use std::collections::BTreeMap;
@@ -101,12 +101,6 @@ impl Runtime {
                 accessor: None,
             },
         }))
-    }
-
-    pub(super) fn symbol_constructor_storage(&mut self) -> Result<Value, JsError> {
-        let id = self.symbol_constructor_owner()?;
-        debug_assert!(matches!(self.heap.get(id), Some(Heap::Object(_))));
-        Ok(Value::Object(id))
     }
 }
 

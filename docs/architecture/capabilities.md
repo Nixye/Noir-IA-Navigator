@@ -189,3 +189,7 @@ Document/Element.getElementsByTagName retorna coleção viva com length, índice
 ## Descritores do global Window — 2026-11-09
 
 Object.defineProperty/defineProperties no global usam propriedades da VM, com metadados, accessors e sincronização de var/function, eval e aliases Window. Substituições de intrinsics como Map preservam flags e não modificam o objeto nativo anterior. Hosts genéricos e propriedades host-backed continuam recusados; enumeração completa, integridade e Reflect no Window não foram liberados. [Escopo e validação](../releases/2026-11-09-window-global-descriptors.md).
+
+## Construtor Number com descritores — 2026-11-09
+
+Number expõe propriedades VM com constantes e flags reais, accessors string/símbolo, operações Object/Reflect e níveis de integridade. Identidade callable, aliases parseInt/parseFloat, GC e rollback são preservados. Apenas Number e Symbol recebem esse armazenamento; demais Native/Host continuam limitados. Quotas existentes não mudam. [Contrato e fixture](../releases/2026-11-09-number-constructor-descriptors.md).

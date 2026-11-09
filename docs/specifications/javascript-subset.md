@@ -426,3 +426,8 @@ Document e Element expõem getElementsByTagName com conversão observável para 
 ## Propriedades globais com descritores — 2026-11-09
 
 O objeto global fornecido por Host::global_object admite descritores de dados/accessors para propriedades VM e intrinsics substituíveis, incluindo keys símbolo. Aliases e nomes globais compartilham metadados; var/function, eval, let/const e delete mantêm as distinções descritas na [nota do incremento](../releases/2026-11-09-window-global-descriptors.md). Getters não são executados por consultas de metadados. A implementação não libera descritores para Document, Node, serviços host-backed ou nativos arbitrários, nem implementa WindowProxy/WebIDL completo.
+
+
+## Propriedades do construtor Number — 2026-11-09
+
+Number usa armazenamento VM para descritores string/símbolo, com identidade chamável preservada, constantes numéricas e flags reais. Object/Reflect, accessors, exclusão, integridade, GC e rollback compartilham esse estado. Number.parseInt/parseFloat mantêm seus aliases globais; constantes e prototype continuam não configuráveis. A permissão é restrita a Number e Symbol, sem liberar outros Native/Host. Coerção Native por operadores e mudança de protótipo interno continuam limitadas. Tetos existentes de propriedades, símbolos, chaves, heap e trabalho permanecem ativos. [Contrato e fixture](../releases/2026-11-09-number-constructor-descriptors.md).

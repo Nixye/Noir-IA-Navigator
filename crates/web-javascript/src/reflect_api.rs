@@ -77,7 +77,10 @@ impl Runtime {
     fn reflect_target(&mut self, value: &Value) -> Result<usize, JsError> {
         if !matches!(
             value,
-            Value::Object(_) | Value::Array(_) | Value::Function(_) | Value::Native("Symbol")
+            Value::Object(_)
+                | Value::Array(_)
+                | Value::Function(_)
+                | Value::Native("Symbol" | "Number")
         ) {
             return Err(self.property_type_error(
                 "Reflect requires a VM object; Host/native exotic targets are unsupported",
@@ -101,7 +104,7 @@ impl Runtime {
     fn reflect_prototype(&mut self, value: &Value) -> Result<Value, JsError> {
         self.reflect_target(value)?;
         match value {
-            Value::Native("Symbol") => Ok(Value::Native("Function.prototype")),
+            Value::Native("Symbol" | "Number") => Ok(Value::Native("Function.prototype")),
             Value::Object(id) => match &self.heap[*id] {
                 Heap::Object(object) => Ok(object.prototype.clone().unwrap_or(Value::Null)),
                 _ => unreachable!(),
@@ -412,7 +415,9 @@ impl Runtime {
             return Ok(true);
         }
         let owner = self.reflect_target(target)?;
-        if *target == Value::Native("Symbol") && self.reflection.non_extensible.contains(&owner) {
+        if matches!(target, Value::Native("Symbol" | "Number"))
+            && self.reflection.non_extensible.contains(&owner)
+        {
             return Ok(false);
         }
         if !matches!(target, Value::Object(_)) {

@@ -93,8 +93,8 @@ impl Runtime {
         if self.is_global_object(object) {
             return Ok(self.global_own_property(property).is_some());
         }
-        if *object == Value::Native("Symbol") {
-            let storage = self.symbol_constructor_storage()?;
+        if let Value::Native(name @ ("Symbol" | "Number")) = object {
+            let storage = self.intrinsic_constructor_storage(name)?;
             return self.has_own_property(&storage, property);
         }
         if let Some(present) = self.stdlib_own_index(object, property) {
@@ -143,8 +143,8 @@ impl Runtime {
         if property.len() > 1024 {
             return Err(JsError::resource("Property name exceeds limit"));
         }
-        if *object == Value::Native("Symbol") {
-            let storage = self.symbol_constructor_storage()?;
+        if let Value::Native(name @ ("Symbol" | "Number")) = object {
+            let storage = self.intrinsic_constructor_storage(name)?;
             return self.has_property(&storage, property, host);
         }
         if let Some(present) = self.stdlib_has(object, property) {
@@ -188,8 +188,8 @@ impl Runtime {
                     }
                 }
                 Value::Native(name) => {
-                    if name == "Symbol" {
-                        current = self.symbol_constructor_storage()?;
+                    if matches!(name, "Symbol" | "Number") {
+                        current = self.intrinsic_constructor_storage(name)?;
                         continue;
                     }
                     if name == "Function.prototype" {
@@ -323,8 +323,8 @@ impl Runtime {
         host: &mut impl Host,
     ) -> Result<bool, JsError> {
         self.tick()?;
-        if object == Value::Native("Symbol") {
-            let storage = self.symbol_constructor_storage()?;
+        if let Value::Native(name @ ("Symbol" | "Number")) = object {
+            let storage = self.intrinsic_constructor_storage(name)?;
             return self.delete_property(storage, property, host);
         }
         if let Some(result) = self.stdlib_delete(&object, property)? {
@@ -522,8 +522,8 @@ impl Runtime {
                     ));
                 }
                 Value::Native(name) => {
-                    if name == "Symbol" || name == "Function.prototype" {
-                        let parent = if name == "Symbol" {
+                    if matches!(name, "Symbol" | "Number" | "Function.prototype") {
+                        let parent = if matches!(name, "Symbol" | "Number") {
                             Value::Native("Function.prototype")
                         } else {
                             self.object_prototype_value()?
@@ -575,8 +575,8 @@ impl Runtime {
         for _ in 0..64 {
             self.tick()?;
             let mut own = Vec::new();
-            if current == Value::Native("Symbol") {
-                current = self.symbol_constructor_storage()?;
+            if let Value::Native(name @ ("Symbol" | "Number")) = current {
+                current = self.intrinsic_constructor_storage(name)?;
             }
             let next = match current {
                 Value::Native("Function.prototype") => {

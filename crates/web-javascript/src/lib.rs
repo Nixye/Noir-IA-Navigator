@@ -24,6 +24,7 @@ mod language;
 mod literal_builders;
 mod math;
 mod modules;
+mod native_number;
 mod native_symbol;
 mod numeric_globals;
 mod parser;
@@ -1921,8 +1922,8 @@ impl Runtime {
         receiver: Value,
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
-        if object == Value::Native("Symbol") {
-            let storage = self.symbol_constructor_storage()?;
+        if let Value::Native(name @ ("Symbol" | "Number")) = object {
+            let storage = self.intrinsic_constructor_storage(name)?;
             return self.get_with_receiver(storage, property, receiver, host);
         }
         if object == Value::Native("Function.prototype") {
@@ -2161,8 +2162,8 @@ impl Runtime {
             return Err(JsError::resource("Property name exceeds limit"));
         }
         match object {
-            Value::Native("Symbol") => {
-                let storage = self.symbol_constructor_storage()?;
+            Value::Native(name @ ("Symbol" | "Number")) => {
+                let storage = self.intrinsic_constructor_storage(name)?;
                 self.set_unchecked(storage, property, value, host)
             }
             Value::Host(id) if Some(id) == host.global_object() => {
@@ -2191,15 +2192,9 @@ impl Runtime {
                 Ok(())
             }
             Value::Object(id) => {
-                self.note_property_insertion(id, property);
-                if matches!(self.heap.get(id),Some(Heap::Object(object)) if !object.properties.contains_key(property))
-                {
-                    self.charge_string(property.len())?;
-                }
-                let Heap::Object(object) = &mut self.heap[id] else {
+                let Some(Heap::Object(object)) = self.heap.get(id) else {
                     return Err(JsError::runtime("Invalid object"));
                 };
-                let values = &mut object.properties;
                 if object.regexp.is_some()
                     && matches!(
                         property,
@@ -2216,10 +2211,19 @@ impl Runtime {
                 {
                     return Ok(());
                 }
-                if values.len() >= 128 && !values.contains_key(property) {
-                    return Err(JsError::resource("Object property limit exceeded"));
+                if !object.properties.contains_key(property) {
+                    if object.properties.len() >= 128 {
+                        return Err(JsError::resource("Object property limit exceeded"));
+                    }
+                    self.charge_string(property.len())?;
                 }
-                values.insert(property.into(), value);
+                // A rejected insertion must not reserve an ordering slot. This
+                // also keeps the metadata for intrinsic backing objects bounded.
+                self.note_property_insertion(id, property);
+                let Heap::Object(object) = &mut self.heap[id] else {
+                    unreachable!()
+                };
+                object.properties.insert(property.into(), value);
                 Ok(())
             }
             Value::Array(id) => {

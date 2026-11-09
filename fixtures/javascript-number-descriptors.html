@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Descritores Number</title></head>
+<body><h1>Propriedades reais de Number</h1><p id="result">Aguardando execução.</p>
+<script>
+function installIfChanged(target, key, candidate) {
+  if (target[key] != candidate && candidate != null) {
+    Object.defineProperty(target, key, { value: candidate, writable: true, configurable: true });
+  }
+}
+installIfChanged(Number, 'MAX_SAFE_INTEGER', 9007199254740991);
+installIfChanged(Number, 'MIN_SAFE_INTEGER', -9007199254740991);
+installIfChanged(Number, 'incrementForDemo', function (value) { return value + 1; });
+let reads = 0;
+Object.defineProperty(Number, 'receiverForDemo', {
+  get: function () { reads++; return this === Number; }, configurable: true
+});
+const constant = Object.getOwnPropertyDescriptor(Number, 'MAX_SAFE_INTEGER');
+const method = Object.getOwnPropertyDescriptor(Number, 'incrementForDemo');
+const valid = constant.value === 9007199254740991 && !constant.writable && !constant.configurable
+  && method.writable && method.configurable && !method.enumerable
+  && Number.incrementForDemo(4) === 5 && Number.receiverForDemo && reads === 1
+  && Number.parseInt === parseInt && Number('12') === 12 && new Number(7).valueOf() === 7;
+document.getElementById('result').textContent = valid ? 'Constantes e descritores Number ativos.' : 'Falha nos descritores.';
+</script></body></html>
