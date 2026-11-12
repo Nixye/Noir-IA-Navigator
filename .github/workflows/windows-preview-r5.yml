@@ -1,0 +1,78 @@
+name: R5 Windows preview
+on:
+  push:
+    branches: ['recovery/r5-bounding-rect-2026-11-12']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: r5-windows-preview-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  windows-preview:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+      NOIR_BUILD_ID: recovery-r5-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+      - name: Formatting
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Tests
+        run: cargo test --workspace --locked
+      - name: Build native Windows executable
+        run: cargo build -p browser-desktop --bin noir --release --locked
+      - name: Version startup smoke (not GUI validation)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "$pwd/target/release/noir.exe" -ArgumentList '--version' -WindowStyle Hidden -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Version smoke failed: $($p.ExitCode)" }
+      - name: Package local preview and provenance
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path preview -Force | Out-Null
+          Copy-Item target/release/noir.exe preview/noir.exe
+          Copy-Item fixtures/bounding-panel-recovery-r5.html preview/
+          @'
+          Noir R5 recuperada - previa Windows
+          Extraia todos os arquivos em uma pasta. Duplo clique em noir.exe abre a interface.
+          Para testar a pagina local, abra PowerShell nessa pasta e execute:
+          .\noir.exe --temporary-profile .\bounding-panel-recovery-r5.html
+          Base V13 recuperada + R1-R5 novos. V14-V49 nao foram recuperadas.
+          Sem modelos de IA. Sites publicos/Google e GUI Windows nao estao comprovados.
+          O smoke --version confirma somente inicializacao sem GUI.
+          Nao desative recursos de seguranca do Windows para executar esta previa.
+          '@ | Set-Content preview/LEIA-ME.txt -Encoding utf8
+          $exe = Get-Item preview/noir.exe
+          $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest = [ordered]@{
+            revision = 'recovery-r5'
+            commit = '${{ github.sha }}'
+            source_checkpoint_sha256 = 'cbe41df99a814bce0a86bc7fdda62406ca60c4ec5fa83c726fc17007a899cf28'
+            build_id = $env:NOIR_BUILD_ID
+            run_id = '${{ github.run_id }}'
+            run_attempt = '${{ github.run_attempt }}'
+            executable = 'noir.exe'
+            executable_bytes = $exe.Length
+            executable_sha256 = $hash
+            rustc = (rustc --version | Out-String).Trim()
+            version_smoke = 'exit 0; not GUI validation'
+            gui_validated = $false
+          }
+          $manifest | ConvertTo-Json | Set-Content preview/BUILD-MANIFEST.json -Encoding utf8
+          Get-ChildItem preview -File | Sort-Object Name | ForEach-Object {
+            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$h  $($_.Name)"
+          } | Set-Content preview/SHA256SUMS.txt -Encoding ascii
+      - name: Retain preview artifact (no public Release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: noir-recovery-r5-windows-x64-${{ github.sha }}
+          path: preview/*
+          if-no-files-found: error
+          retention-days: 7
