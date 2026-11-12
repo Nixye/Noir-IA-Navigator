@@ -62,7 +62,7 @@ fn run(args: &[String]) -> Result<(), String> {
     let capture = args[0] == "capture";
     let replay = args[0] == "replay";
     let target = args.get(1).ok_or("Informe o documento; use --help")?;
-    let mut viewport = Viewport::default();
+    let mut viewport = Viewport::default().at_origin();
     let mut output: Option<PathBuf> = None;
     let mut ppm: Option<PathBuf> = None;
     let mut snapshot_path: Option<PathBuf> = None;

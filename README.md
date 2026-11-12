@@ -1,5 +1,68 @@
 # Noir
 
+## Continuação V13 via R1–R4: border-box recovery-r5
+
+Registro de autoria em 2026-11-12, antes da validação. O [bloco R5](docs/releases/bounding-panel-recovery-r5.md)
+mede caixas principais reais por getBoundingClientRect e devolve snapshot
+ordinário de oito números. Contexto host Origin/Sampled é explícito; Unknown
+não simula zero. Fixture local ancora popup com frações e CSS/RAF/click.
+Recortes inline/tabelas/DOMRect completo permanecem limitados. Resultados
+posteriores e pins pertencem ao relatório externo, sem PASS antecipado.
+V14–49 não foram recuperadas; nenhuma validação de GUI/Windows/sites públicos
+ou nova prova de sandbox é alegada. Histórico abaixo permanece contextualizado.
+
+
+## Continuação V13 via R1–R3: NodeList recovery-r4
+
+Registro de autoria em 2026-11-12, antes da validação. O [bloco R4](docs/releases/nodelist-foreach-recovery-r4.md)
+unifica NodeList.item para snapshot/viva e expõe forEach compartilhado com o
+Native genérico da VM, com comprimento capturado e acesso atual por índice.
+Fixture local inicializa filtros/eventos e verifica retenção em RAF/click.
+Resultados posteriores e pins pertencem ao relatório externo do checkpoint,
+sem PASS antecipado. Uma limitação/oráculo R3 de snapshot sem item é migrada
+explicitamente; registros anteriores permanecem históricos. V14–49 não foram
+recuperadas. Não se alega validação de GUI/Windows/sites públicos ou ECMA completo.
+
+
+## Continuação V13 via R1/R2: coleções vivas recovery-r3
+
+Registro de autoria em 2026-11-12, antes da validação. O [bloco R3](docs/releases/live-collections-recovery-r3.md)
+acrescenta children/childNodes vivos, identidade estável por raiz/tipo e leituras
+atualizadas após edição; querySelectorAll permanece snapshot. Fixture e testes
+locais cobrem lista editável, jobs/RAF, geometria e worker sem replay. Resultados
+posteriores e pins pertencem ao relatório externo do checkpoint, sem PASS
+antecipado. V14–49 não foram recuperadas; GUI/Windows/sites públicos não são
+alegados como validados. Seções e manifestos herdados permanecem históricos.
+
+
+## Continuação V13 via R1: fundos recovery-r2
+
+Registro de autoria de 2026-11-12, antes da validação. O [bloco R2](docs/releases/background-ownership-recovery-r2.md)
+separa o fundo da caixa do fundo de seu texto direto, preservando camadas
+inline legítimas e CSS computado. Novos oráculos locais cobrem alpha, pixels
+CPU, classList/RAF, clipping e worker sem replay. Resultados posteriores e pins
+pertencem ao relatório externo do checkpoint; autoria não antecipa PASS.
+
+É continuação nova da V13 restaurada via R1, não recuperação de V14–49.
+Sem alegação de GUI, Windows, GPU, Google ou sites públicos validados.
+As seções seguintes e manifestos herdados conservam seu contexto histórico.
+
+
+## Continuação nova da base V13: classList recovery-r1
+
+**Autoria local, NOT_RUN.** Este checkout continua a V13 restaurada; não
+recupera nem alega validação de V14–49. O [novo bloco classList](docs/releases/classlist-recovery-r1.md)
+acrescenta DOMTokenList vivo e limitado, com fixture inline de menu/aba/tema e
+oráculos de CSS/frame, RAF e worker retido. Gates aguardam o bloco completo.
+Não há validação de GUI, Windows, Google ou sites públicos nesta autoria.
+
+SOURCE-MANIFEST.json (snapshot histórico de 933 arquivos) e
+docs/source-snapshot-2026-11-09.md são evidências históricas, não validam a
+base V13 de 1061 arquivos nem esta continuação. O novo manifesto externo do
+checkpoint será identificado quando gerado e verificado. Seções anteriores
+abaixo conservam o significado histórico de suas afirmações e resultados.
+
+
 ## Estado atual: validação e frames — 2026-11-08
 
 A instrução posterior autoriza testes e ciclos de correção. Item 19: **validação em andamento**; itens 1–18 continuam abertos/parciais. O [baseline funcional](docs/validation/2026-11-08-functional-baseline.md) registra comandos e resultados novos. As seções anteriores desta rodada abaixo são históricas: o adiamento e a ausência de testes valiam naquelas entregas e não são reescritos como sucesso funcional.

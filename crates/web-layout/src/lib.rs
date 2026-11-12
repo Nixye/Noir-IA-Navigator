@@ -197,10 +197,21 @@ pub struct LayoutResult {
     /// Dimensions of actual principal boxes, before viewport clipping. Inline
     /// non-replaced elements have no client box in the supported CSS subset.
     pub boxes: Vec<Option<BoxMetrics>>,
+    pub unsupported_geometry: Vec<Option<UnsupportedGeometry>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnsupportedGeometry {
+    Inline,
+    TableStructure,
+    InlineImageDecoration,
+    AtomicContents,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct BoxMetrics {
+    pub x: f32,
+    pub y: f32,
     pub width: f32,
     pub height: f32,
     pub border: f32,
@@ -241,6 +252,9 @@ pub fn layout(
         height_context: vec![Some(viewport.height)],
         control_count: 0,
         boxes: vec![None; document.nodes.len()],
+        unsupported_geometry: vec![None; document.nodes.len()],
+        geometry_order: Vec::new(),
+        background_owner: None,
     };
     let mut flow = Flow::new(0.0, 0.0, viewport.width);
     layout.children(0, &mut flow, None)?;
@@ -332,6 +346,19 @@ pub fn layout(
     layout
         .links
         .retain(|link| link.rect.width > 0. && link.rect.height > 0.);
+    for metrics in layout.boxes.iter_mut().flatten() {
+        let mut rect = Rect {
+            x: metrics.x,
+            y: metrics.y,
+            width: metrics.width,
+            height: metrics.height,
+        };
+        bound_rect(&mut rect)?;
+        metrics.x = rect.x;
+        metrics.y = rect.y;
+        metrics.width = rect.width;
+        metrics.height = rect.height;
+    }
     Ok(LayoutResult {
         items: layout.items,
         links: layout.links,
@@ -340,6 +367,7 @@ pub fn layout(
         background,
         warnings: layout.warnings,
         boxes: layout.boxes,
+        unsupported_geometry: layout.unsupported_geometry,
     })
 }
 
@@ -375,6 +403,7 @@ struct Flow {
     line_height: f32,
     item_start: usize,
     link_start: usize,
+    geometry_start: usize,
     space: bool,
     align: Alignment,
 }
@@ -388,6 +417,7 @@ impl Flow {
             line_height: 0.0,
             item_start: 0,
             link_start: 0,
+            geometry_start: 0,
             space: false,
             align: Alignment::Start,
         }
@@ -424,8 +454,63 @@ struct Layout<'a> {
     height_context: Vec<Option<f32>>,
     control_count: usize,
     boxes: Vec<Option<BoxMetrics>>,
+    unsupported_geometry: Vec<Option<UnsupportedGeometry>>,
+    geometry_order: Vec<NodeId>,
+    // Actual principal box currently painting its contents, including
+    // blockified inline elements. This is not inferred from CSS display.
+    background_owner: Option<NodeId>,
 }
 impl<'a> Layout<'a> {
+    // One entry per actual principal box, independent of paint visibility.
+    fn record_box(&mut self, id: NodeId, metrics: BoxMetrics) {
+        if self.boxes[id].is_none() {
+            self.geometry_order.push(id);
+        }
+        self.boxes[id] = Some(metrics);
+    }
+    fn translate_geometry(&mut self, range: std::ops::Range<usize>, dx: f32, dy: f32) {
+        for id in &self.geometry_order[range] {
+            if let Some(metrics) = &mut self.boxes[*id] {
+                metrics.x = (metrics.x + dx).clamp(-MAX_EXTENT, MAX_EXTENT);
+                metrics.y = (metrics.y + dy).clamp(-MAX_EXTENT, MAX_EXTENT);
+            }
+        }
+    }
+    fn mark_atomic_contents(&mut self, id: NodeId) -> Result<(), String> {
+        let mut pending = self.document.nodes[id].children.clone();
+        while let Some(child) = pending.pop() {
+            self.measure_budget = self
+                .measure_budget
+                .checked_sub(1)
+                .ok_or("Atomic geometry traversal limit exceeded")?;
+            if child >= self.document.nodes.len() {
+                return Err("Invalid atomic geometry child".into());
+            }
+            if self.styles[child].display == Display::None
+                || self.document.is_inactive_subtree(child)
+                || self.document.element(child).is_some_and(|e| {
+                    e.tag == "input"
+                        && e.attr("type")
+                            .is_some_and(|t| t.eq_ignore_ascii_case("hidden"))
+                })
+            {
+                continue;
+            }
+            if self.document.element(child).is_some() {
+                self.unsupported_geometry[child] = Some(UnsupportedGeometry::AtomicContents);
+            }
+            if pending
+                .len()
+                .saturating_add(self.document.nodes[child].children.len())
+                > web_dom::MAX_NODES
+            {
+                return Err("Atomic geometry pending limit exceeded".into());
+            }
+            pending.extend(self.document.nodes[child].children.iter().copied());
+        }
+        Ok(())
+    }
+
     fn defer_positioned(
         &mut self,
         id: NodeId,
@@ -454,6 +539,16 @@ impl<'a> Layout<'a> {
         Ok(())
     }
     fn element_rect(&self, id: NodeId, start: usize, fallback: Rect) -> Rect {
+        if self.unsupported_geometry[id].is_none()
+            && let Some(m) = self.boxes[id]
+        {
+            return Rect {
+                x: m.x,
+                y: m.y,
+                width: m.width,
+                height: m.height,
+            };
+        }
         if (self.styles[id].display != Display::Inline
             || self.styles[id].position == Position::Absolute)
             && let Some(DisplayItem::Rect { rect, .. }) = self.items.get(start)
@@ -498,6 +593,7 @@ impl<'a> Layout<'a> {
         id: NodeId,
         items: usize,
         links: usize,
+        geometry: usize,
         fallback: Rect,
         parent_width: f32,
     ) -> Result<(), String> {
@@ -516,7 +612,13 @@ impl<'a> Layout<'a> {
             .or_else(|| resolve_height(style.inset[2], parent_height).map(|n| -n))
             .unwrap_or(0.);
         let mut rect = self.element_rect(id, items, fallback);
-        self.translate(items..self.items.len(), links..self.links.len(), dx, dy);
+        self.translate(
+            items..self.items.len(),
+            links..self.links.len(),
+            geometry..self.geometry_order.len(),
+            dx,
+            dy,
+        );
         rect.x += dx;
         rect.y += dy;
         for child in &mut frame.children {
@@ -577,6 +679,7 @@ impl<'a> Layout<'a> {
             let y = top.map_or(child.static_y, |top| containing.y + top);
             let items = self.items.len();
             let links = self.links.len();
+            let geometry = self.geometry_order.len();
             self.positioned.push(PositionFrame::default());
             self.height_context.push(Some(containing.height));
             let height = self.box_child(id, x, y, width, child.link.as_deref())?;
@@ -610,7 +713,13 @@ impl<'a> Layout<'a> {
             } else {
                 0.
             };
-            self.translate(items..self.items.len(), links..self.links.len(), dx, dy);
+            self.translate(
+                items..self.items.len(),
+                links..self.links.len(),
+                geometry..self.geometry_order.len(),
+                dx,
+                dy,
+            );
         }
         Ok(())
     }
@@ -656,6 +765,7 @@ impl<'a> Layout<'a> {
     fn flush(&mut self, flow: &mut Flow) {
         if matches!(flow.align, Alignment::Center | Alignment::End) && flow.x > flow.left {
             let delta = alignment_offset(flow.align, (flow.width - (flow.x - flow.left)).max(0.0));
+            self.translate_geometry(flow.geometry_start..self.geometry_order.len(), delta, 0.);
             for item in &mut self.items[flow.item_start..] {
                 match item {
                     DisplayItem::PushClip { rect } => rect.x += delta,
@@ -676,6 +786,7 @@ impl<'a> Layout<'a> {
         flow.space = false;
         flow.item_start = self.items.len();
         flow.link_start = self.links.len();
+        flow.geometry_start = self.geometry_order.len();
     }
     fn children(&mut self, id: NodeId, flow: &mut Flow, link: Option<&str>) -> Result<(), String> {
         let children = self.document.nodes[id].children.clone();
@@ -700,6 +811,7 @@ impl<'a> Layout<'a> {
             if self.styles[id].position == Position::Relative {
                 let items = self.items.len();
                 let links = self.links.len();
+                let geometry = self.geometry_order.len();
                 let fallback = Rect {
                     x: flow.x,
                     y: flow.y,
@@ -708,7 +820,7 @@ impl<'a> Layout<'a> {
                 };
                 self.positioned.push(PositionFrame::default());
                 self.node_in_flow(id, flow, inherited_link)?;
-                return self.finish_relative(id, items, links, fallback, flow.width);
+                return self.finish_relative(id, items, links, geometry, fallback, flow.width);
             }
         }
         self.node_in_flow(id, flow, inherited_link)
@@ -730,7 +842,16 @@ impl<'a> Layout<'a> {
                     .checked_sub(text.len())
                     .ok_or("Inline text copy work limit exceeded")?;
                 let text = text.clone();
-                let style = style.clone();
+                let mut style = style.clone();
+                // Text has no independent box decoration. The current principal
+                // box already painted this direct child's inherited background.
+                // Keep the legacy inline-span/link path when that parent is not
+                // the current box; its own background still belongs to its runs.
+                if self.background_owner.is_some()
+                    && self.document.nodes[id].parent == self.background_owner
+                {
+                    style.background = Color(0, 0, 0, 0);
+                }
                 self.text(&text, &style, flow, inherited_link)
             }
             NodeKind::Document => self.children(id, flow, inherited_link),
@@ -765,6 +886,7 @@ impl<'a> Layout<'a> {
                     flow.y = (flow.y + height).min(MAX_EXTENT);
                     flow.item_start = self.items.len();
                     flow.link_start = self.links.len();
+                    flow.geometry_start = self.geometry_order.len();
                     return Ok(());
                 }
                 if style.display == Display::InlineBlock {
@@ -789,6 +911,9 @@ impl<'a> Layout<'a> {
                     flow.line_height = flow.line_height.max(height);
                     return Ok(());
                 }
+                if element.tag != "img" {
+                    self.unsupported_geometry[id] = Some(UnsupportedGeometry::Inline);
+                }
                 if element.tag == "br" {
                     flow.line_height = flow.line_height.max(style.font_size * style.line_height);
                     self.flush(flow);
@@ -802,6 +927,22 @@ impl<'a> Layout<'a> {
         }
     }
     fn block(
+        &mut self,
+        id: NodeId,
+        x: f32,
+        y: f32,
+        available: f32,
+        link: Option<&str>,
+        allocated: bool,
+    ) -> Result<f32, String> {
+        let previous = self.background_owner.replace(id);
+        let result = self.block_inner(id, x, y, available, link, allocated);
+        // Restore even when a bounded layout operation fails. An inner box must
+        // never become the owner of text following it in its parent's flow.
+        self.background_owner = previous;
+        result
+    }
+    fn block_inner(
         &mut self,
         id: NodeId,
         x: f32,
@@ -882,6 +1023,16 @@ impl<'a> Layout<'a> {
         };
         let bx = (x + left).clamp(-MAX_EXTENT, MAX_EXTENT);
         let by = (y + mt).clamp(-MAX_EXTENT, MAX_EXTENT);
+        self.record_box(
+            id,
+            BoxMetrics {
+                x: bx,
+                y: by,
+                width: box_width,
+                height: 0.,
+                border,
+            },
+        );
         let background_index = self.items.len();
         // Background placeholder precedes descendants in paint order.
         self.push(DisplayItem::Rect {
@@ -931,6 +1082,7 @@ impl<'a> Layout<'a> {
         }
         inner.item_start = self.items.len();
         inner.link_start = self.links.len();
+        inner.geometry_start = self.geometry_order.len();
         inner.align = style.text_align;
         let vertical = pt + pb + 2. * border;
         let content_height = |height: f32| {
@@ -977,11 +1129,7 @@ impl<'a> Layout<'a> {
             )
             .max(0.0);
         let box_height = (requested + vertical).min(MAX_EXTENT);
-        self.boxes[id] = Some(BoxMetrics {
-            width: box_width,
-            height: box_height,
-            border,
-        });
+        self.boxes[id].as_mut().expect("principal box").height = box_height;
         if let Some(index) = clip_index {
             let clip = Rect {
                 x: bx + border,
@@ -1366,8 +1514,12 @@ impl<'a> Layout<'a> {
                 continue;
             }
             match self.document.element(child).map(|e| e.tag.as_str()) {
-                Some("tr") => rows.push(child),
+                Some("tr") => {
+                    self.unsupported_geometry[child] = Some(UnsupportedGeometry::TableStructure);
+                    rows.push(child);
+                }
                 Some("thead" | "tbody" | "tfoot") => {
+                    self.unsupported_geometry[child] = Some(UnsupportedGeometry::TableStructure);
                     rows.extend(self.document.nodes[child].children.iter().copied().filter(
                         |node| {
                             self.styles[*node].display != Display::None
@@ -1391,6 +1543,7 @@ impl<'a> Layout<'a> {
         let mut cells = Vec::new();
         let mut columns = 0usize;
         for row in rows {
+            self.unsupported_geometry[row] = Some(UnsupportedGeometry::TableStructure);
             let row_cells = self.document.nodes[row]
                 .children
                 .iter()
@@ -1510,6 +1663,7 @@ impl<'a> Layout<'a> {
             let relative = self.styles[id].position == Position::Relative;
             let items = self.items.len();
             let links = self.links.len();
+            let geometry = self.geometry_order.len();
             if relative {
                 self.positioned.push(PositionFrame::default());
             }
@@ -1519,6 +1673,7 @@ impl<'a> Layout<'a> {
                 let mut flow = Flow::new(x, y, width.max(1.));
                 flow.item_start = items;
                 flow.link_start = links;
+                flow.geometry_start = geometry;
                 self.control(id, &mut flow, true)?;
                 self.flush(&mut flow);
                 flow.y - y
@@ -1530,6 +1685,7 @@ impl<'a> Layout<'a> {
                     id,
                     items,
                     links,
+                    geometry,
                     Rect {
                         x,
                         y,
@@ -1544,6 +1700,7 @@ impl<'a> Layout<'a> {
             let mut flow = Flow::new(x, y, width.max(1.));
             flow.item_start = self.items.len();
             flow.link_start = self.links.len();
+            flow.geometry_start = self.geometry_order.len();
             self.node(id, &mut flow, link)?;
             self.flush(&mut flow);
             Ok(flow.y - y)
@@ -1553,9 +1710,11 @@ impl<'a> Layout<'a> {
         &mut self,
         items: std::ops::Range<usize>,
         links: std::ops::Range<usize>,
+        geometry: std::ops::Range<usize>,
         dx: f32,
         dy: f32,
     ) {
+        self.translate_geometry(geometry, dx, dy);
         for item in &mut self.items[items] {
             let rect = match item {
                 DisplayItem::PopClip => continue,
@@ -1636,15 +1795,20 @@ impl<'a> Layout<'a> {
                 let offset = alignment_offset(style.align_items, (flow.width - width).max(0.));
                 let items = self.items.len();
                 let links = self.links.len();
+                let geometry = self.geometry_order.len();
                 let height = self.box_child(child, flow.left + offset, flow.y, width, link)?;
-                ranges.push((items..self.items.len(), links..self.links.len()));
+                ranges.push((
+                    items..self.items.len(),
+                    links..self.links.len(),
+                    geometry..self.geometry_order.len(),
+                ));
                 flow.y = (flow.y + height).min(MAX_EXTENT);
             }
             let requested = self.height_context.last().copied().flatten().unwrap_or(0.);
             let spare = (requested - (flow.y - start_y)).max(0.);
             let (offset, gap) = distribution(style.justify_content, spare, ranges.len());
-            for (index, (items, links)) in ranges.into_iter().enumerate() {
-                self.translate(items, links, 0., offset + index as f32 * gap);
+            for (index, (items, links, geometry)) in ranges.into_iter().enumerate() {
+                self.translate(items, links, geometry, 0., offset + index as f32 * gap);
             }
             flow.y = flow.y.max(start_y + requested);
             return Ok(());
@@ -1717,11 +1881,13 @@ impl<'a> Layout<'a> {
             for (child, width) in children[first..end].iter().zip(sizes) {
                 let items = self.items.len();
                 let links = self.links.len();
+                let geometry = self.geometry_order.len();
                 let height = self.box_child(*child, x, flow.y, width, link)?;
                 ranges.push((
                     *child,
                     items..self.items.len(),
                     links..self.links.len(),
+                    geometry..self.geometry_order.len(),
                     height,
                 ));
                 row_height = row_height.max(height);
@@ -1734,14 +1900,14 @@ impl<'a> Layout<'a> {
             {
                 row_height = definite.clamp(0., MAX_EXTENT);
             }
-            for (child, items, links, height) in ranges {
+            for (child, items, links, geometry, height) in ranges {
                 if style.align_items == Alignment::Stretch {
                     self.stretch_box(child, items.start, row_height);
                 }
                 // The outer height includes margins; negative free space permits
                 // center/end overflow instead of silently reverting to start.
                 let dy = alignment_offset(style.align_items, row_height - height);
-                self.translate(items, links, 0., dy);
+                self.translate(items, links, geometry, 0., dy);
             }
             flow.y = (flow.y
                 + row_height
@@ -1801,23 +1967,26 @@ impl<'a> Layout<'a> {
             for (child, width) in chunk.iter().zip(&widths) {
                 let items = self.items.len();
                 let links = self.links.len();
+                let geometry = self.geometry_order.len();
                 let child_height = self.box_child(*child, x, flow.y, *width, link)?;
                 ranges.push((
                     *child,
                     items..self.items.len(),
                     links..self.links.len(),
+                    geometry..self.geometry_order.len(),
                     child_height,
                 ));
                 height = height.max(child_height);
                 x += width + style.gap[1];
             }
-            for (child, items, links, child_height) in ranges {
+            for (child, items, links, geometry, child_height) in ranges {
                 if style.align_items == Alignment::Stretch {
                     self.stretch_box(child, items.start, height);
                 }
                 self.translate(
                     items,
                     links,
+                    geometry,
                     0.,
                     alignment_offset(style.align_items, (height - child_height).max(0.)),
                 );
@@ -2073,6 +2242,9 @@ impl<'a> Layout<'a> {
             .take(512)
             .collect();
         let hidden = kind == ControlKind::Hidden;
+        if !hidden {
+            self.mark_atomic_contents(id)?;
+        }
         let (_, preferred) = self.control_preferred_width(id, &style)?;
         let border = style.border_width.clamp(0., 128.);
         let [mt, mr, mb, ml] = style.margin;
@@ -2163,11 +2335,16 @@ impl<'a> Layout<'a> {
         };
         let multiple = element.attributes.contains_key("multiple");
         if !hidden && self.boxes[id].is_none() {
-            self.boxes[id] = Some(BoxMetrics {
-                width,
-                height,
-                border,
-            });
+            self.record_box(
+                id,
+                BoxMetrics {
+                    x: rect.x,
+                    y: rect.y,
+                    width,
+                    height,
+                    border,
+                },
+            );
         }
         let (options, selected, truncated) = if kind == ControlKind::Select {
             self.measure_budget = self
@@ -2264,11 +2441,19 @@ impl<'a> Layout<'a> {
             height,
         };
         if self.boxes[id].is_none() {
-            self.boxes[id] = Some(BoxMetrics {
-                width,
-                height,
-                border: 0.,
-            });
+            self.record_box(
+                id,
+                BoxMetrics {
+                    x: rect.x,
+                    y: rect.y,
+                    width,
+                    height,
+                    border: 0.,
+                },
+            );
+            if style.border_width > 0. || style.padding.iter().any(|n| *n != 0.) {
+                self.unsupported_geometry[id] = Some(UnsupportedGeometry::InlineImageDecoration);
+            }
         }
         if !style.visible {
             // Keep formatting geometry, while exposing no hidden image or link.
@@ -2319,6 +2504,9 @@ impl<'a> Layout<'a> {
 }
 
 #[cfg(test)]
+mod background_owner_recovery_r2_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     fn reduced_image() -> ImageAsset {
@@ -2342,6 +2530,7 @@ mod tests {
             Viewport {
                 width: 4096.,
                 height: 2048.,
+                ..Viewport::default()
             },
         )
         .unwrap();
@@ -2533,6 +2722,9 @@ mod tests {
             height_context: vec![None],
             control_count: 0,
             boxes: Vec::new(),
+            unsupported_geometry: Vec::new(),
+            geometry_order: Vec::new(),
+            background_owner: None,
         };
         let mut flow = Flow::new(0., 0., width);
         engine.text(text, &style, &mut flow, Some("/text"))?;
@@ -2957,6 +3149,7 @@ mod tests {
             Viewport {
                 width: 320.,
                 height: 200.,
+                ..Viewport::default()
             },
         )
         .unwrap();
@@ -3135,10 +3328,14 @@ mod tests {
                 &[],
                 Viewport {
                     width: f32::NAN,
-                    height: 50.0
+                    height: 50.0,
+                    ..Viewport::default()
                 }
             )
             .is_err()
         );
     }
 }
+
+#[cfg(test)]
+mod geometry_recovery_r5_tests;

@@ -102,6 +102,9 @@ impl Runtime {
     }
 
     fn reflect_prototype(&mut self, value: &Value) -> Result<Value, JsError> {
+        if let Some(parent) = self.readonly_ancestor_parent(value)? {
+            return Ok(parent);
+        }
         self.reflect_target(value)?;
         match value {
             Value::Native("Symbol" | "Number") => Ok(Value::Native("Function.prototype")),
@@ -111,16 +114,15 @@ impl Runtime {
             },
             Value::Array(id) if Some(*id) == self.array_prototype => self.object_prototype_value(),
             Value::Array(_) => self.array_prototype_value(),
-            Value::Function(id) => Ok(self
-                .class_static_parent(*id)
-                .unwrap_or(Value::Native("Function.prototype"))),
+            Value::Function(id) => self.function_internal_prototype(*id),
             _ => unreachable!(),
         }
     }
 
     // Traverse ourselves so both string and symbol accessors keep the explicitly
     // supplied receiver, including class static inheritance. Existence never
-    // evaluates getters. The native Function prototype is a read-only boundary.
+    // evaluates getters. Known immutable native ancestors expose only their
+    // explicit read-only inventory, never an arbitrary native heap owner.
     fn reflect_lookup(
         &mut self,
         target: Value,
@@ -139,10 +141,12 @@ impl Runtime {
                     Value::Undefined
                 });
             }
-            if current == Value::Native("Function.prototype") {
+            if crate::reflection::intrinsic_ancestors::readonly_ancestor_names(&current).is_some() {
                 if !matches!(key, Value::Symbol(..)) {
                     let name = self.text(&key, 0)?;
-                    if let Some(descriptor) = self.function_prototype_descriptor(&name)? {
+                    if let Some(descriptor) =
+                        self.readonly_ancestor_descriptor(&current, &name, !existence)?
+                    {
                         return Ok(if existence {
                             Value::Bool(true)
                         } else {
@@ -150,7 +154,7 @@ impl Runtime {
                         });
                     }
                 }
-                current = self.object_prototype_value()?;
+                current = self.readonly_ancestor_parent(&current)?.unwrap();
                 continue;
             }
             self.reflect_target(&current)?;
@@ -204,12 +208,12 @@ impl Runtime {
         } else {
             length.trunc()
         };
-        if length > 32. {
+        if length > crate::call_storage::MAX_CALL_ARGUMENTS as f64 {
             return Err(JsError::resource(
-                "Reflect argument list exceeds 32 entries",
+                "Reflect argument list exceeds 64 entries",
             ));
         }
-        let mut result = Vec::with_capacity(length as usize);
+        let mut result = self.value_buffer(length as usize)?;
         for index in 0..length as usize {
             self.tick()?;
             result.push(self.get(value.clone(), &index.to_string(), host)?);
@@ -357,21 +361,24 @@ impl Runtime {
             if current == Value::Null {
                 return self.reflect_write_receiver(receiver, &key, value, host);
             }
-            let descriptor = if current == Value::Native("Function.prototype") {
-                if matches!(key, Value::Symbol(..)) {
-                    None
+            let descriptor =
+                if crate::reflection::intrinsic_ancestors::readonly_ancestor_names(&current)
+                    .is_some()
+                {
+                    if matches!(key, Value::Symbol(..)) {
+                        None
+                    } else {
+                        let name = self.text(&key, 0)?;
+                        self.readonly_ancestor_descriptor(&current, &name, false)?
+                    }
+                } else if let Value::Symbol(symbol, _) = &key {
+                    self.reflect_target(&current)?;
+                    self.symbol_descriptor(&current, *symbol)?
                 } else {
+                    self.reflect_target(&current)?;
                     let name = self.text(&key, 0)?;
-                    self.function_prototype_descriptor(&name)?
-                }
-            } else if let Value::Symbol(symbol, _) = &key {
-                self.reflect_target(&current)?;
-                self.symbol_descriptor(&current, *symbol)?
-            } else {
-                self.reflect_target(&current)?;
-                let name = self.text(&key, 0)?;
-                self.own_descriptor(&current, &name, host)?
-            };
+                    self.own_descriptor(&current, &name, host)?
+                };
             if let Some(descriptor) = descriptor {
                 if let Some((_, setter)) = descriptor.metadata.accessor {
                     if setter == Value::Undefined {
@@ -385,18 +392,18 @@ impl Runtime {
                 }
                 return self.reflect_write_receiver(receiver, &key, value, host);
             }
-            current = if current == Value::Native("Function.prototype") {
-                self.object_prototype_value()?
-            } else {
-                self.reflect_prototype(&current)?
-            };
+            current = self.reflect_prototype(&current)?;
         }
         Err(JsError::resource(
             "Reflect set prototype traversal exceeds 64 levels",
         ))
     }
 
-    fn reflect_set_prototype(&mut self, target: &Value, prototype: Value) -> Result<bool, JsError> {
+    pub(super) fn reflect_set_prototype(
+        &mut self,
+        target: &Value,
+        prototype: Value,
+    ) -> Result<bool, JsError> {
         if !matches!(
             prototype,
             Value::Null
@@ -410,19 +417,19 @@ impl Runtime {
                 "Reflect.setPrototypeOf prototype must be an object or null",
             ));
         }
+        let owner = self.reflect_target(target)?;
         let current = self.reflect_prototype(target)?;
         if crate::strict_equal(&current, &prototype) {
             return Ok(true);
         }
-        let owner = self.reflect_target(target)?;
         if matches!(target, Value::Native("Symbol" | "Number"))
             && self.reflection.non_extensible.contains(&owner)
         {
             return Ok(false);
         }
-        if !matches!(target, Value::Object(_)) {
+        if !matches!(target, Value::Object(_) | Value::Function(_)) {
             return Err(self.property_type_error(
-                "Reflect prototype mutation of arrays/functions is not implemented",
+                "Prototype mutation of arrays/native functions is not implemented",
             ));
         }
         if self.reflection.non_extensible.contains(&owner)
@@ -433,6 +440,11 @@ impl Runtime {
                 .is_some_and(|value| crate::strict_equal(value, target))
         {
             return Ok(false);
+        }
+        if matches!(target, Value::Function(id) if self.is_class(*id)) {
+            return Err(self.property_type_error(
+                "Prototype mutation of class constructors is not implemented",
+            ));
         }
         let mut ancestor = prototype.clone();
         let mut finished = false;
@@ -445,11 +457,7 @@ impl Runtime {
             if crate::strict_equal(&ancestor, target) {
                 return Ok(false);
             }
-            ancestor = if ancestor == Value::Native("Function.prototype") {
-                self.object_prototype_value()?
-            } else {
-                self.reflect_prototype(&ancestor)?
-            };
+            ancestor = self.reflect_prototype(&ancestor)?;
         }
         if !finished {
             return Err(JsError::resource(
@@ -457,14 +465,17 @@ impl Runtime {
             ));
         }
         // No callback or mutation occurs before the full cycle check completes.
-        let Heap::Object(object) = &mut self.heap[owner] else {
-            unreachable!()
-        };
-        object.prototype = if prototype == Value::Null {
-            None
-        } else {
-            Some(prototype)
-        };
+        match &mut self.heap[owner] {
+            Heap::Object(object) => {
+                object.prototype = if prototype == Value::Null {
+                    None
+                } else {
+                    Some(prototype)
+                }
+            }
+            Heap::Function(function) => function.internal_prototype = Some(prototype),
+            _ => unreachable!(),
+        }
         Ok(true)
     }
     pub(super) fn reflect_call(
@@ -509,6 +520,13 @@ impl Runtime {
             let arguments =
                 self.reflect_arguments(args.get(1).unwrap_or(&Value::Undefined), host)?;
             return self.construct(target, arguments, host).map(Some);
+        }
+        // Read-only prototype inspection does not grant native own-property or
+        // mutation authority. All other operations still use the original gate.
+        if name == "Reflect.getPrototypeOf"
+            && crate::reflection::intrinsic_ancestors::error_ancestor(&target).is_some()
+        {
+            return self.reflect_prototype(&target).map(Some);
         }
         let owner = self.reflect_target(&target)?;
         let result = match name {
@@ -659,7 +677,7 @@ mod tests {
         ] {
             assert_eq!(run(source).unwrap(), Value::Bool(true), "{source}");
         }
-        assert!(run("Reflect.apply(function(){},null,{length:33});").is_err());
+        assert!(run("Reflect.apply(function(){},null,{length:65});").is_err());
     }
     #[test]
     fn define_property_returns_false_only_for_internal_rejection() {

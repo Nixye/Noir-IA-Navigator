@@ -418,6 +418,7 @@ fn accept_animation_frame_pulse(
 }
 
 fn validate_viewport(viewport: Viewport) -> Result<(), String> {
+    browser_ipc::validate_view_context(viewport.view_context)?;
     if !viewport.width.is_finite()
         || !viewport.height.is_finite()
         || !(1.0..=16384.).contains(&viewport.width)
@@ -514,6 +515,7 @@ pub fn run_session_worker() -> Result<(), String> {
                         let session = engine
                             .as_mut()
                             .ok_or_else(|| "Begin required before Scripts".to_string())?;
+                        session.update_geometry(viewport)?;
                         session.complete_scripts(&scripts)?;
                         session.render(viewport)
                     });

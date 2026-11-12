@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<title>Avaliação iterativa de expressões</title>
+<body>
+<h1>Avaliação iterativa de expressões</h1>
+<p id="result">Executando...</p>
+<script>
+function descend(n) {
+  return n ? 1 + (2 + (3 + (4 + (5 + (6 + descend(n - 1)))))) : 0;
+}
+var ok = descend(12) === 252;
+var trace = '', saved = 0, reference = {};
+Object.defineProperty(reference, 'value', {
+  get: function() {
+    trace += 'G';
+    return {valueOf: function() { trace += 'V'; return 5; }};
+  },
+  set: function(value) { trace += 'S'; saved = value; }
+});
+var key = {toString: function() { trace += 'K'; return 'value'; }};
+reference[key] += (trace += 'R', 4);
+ok = ok && trace === 'KGRVS' && saved === 9;
+
+trace = '';
+var target = {value: 7, work: function(a, b) { return this.value + a + b; }};
+Object.defineProperty(target, 'method', {
+  get: function() { trace += 'G'; return this.work; }
+});
+function change() { trace += 'A'; target.work = function() { return 99; }; return 3; }
+ok = ok && target.method(change(), ...[4]) === 14 && trace === 'GA';
+
+var values = [, descend(1), ...[3, 4]];
+var shape = {value: values[1], ...{tail: 9}, total: function() { return this.value + this.tail; }};
+shape['key' + descend(0)] = 8;
+ok = ok && values.length === 4 && !(0 in values) && shape.key0 === 8;
+ok = ok && `${shape.total()}:${values.length}` === '30:4';
+function Box(value) { this.value = value; }
+ok = ok && new Box(descend(1)).value === 21;
+
+function direct() {
+  let onlyInside = 9;
+  return eval('onlyInside') === 9 && (0, eval)('typeof onlyInside') === 'undefined';
+}
+ok = ok && direct();
+var skipped = 0;
+var selected = false ? ++skipped : true ? descend(1) : ++skipped;
+ok = ok && selected === 21 && skipped === 0;
+function* steps() { yield descend(2); return descend(1); }
+var iterator = steps();
+ok = ok && iterator.next().value === 42 && iterator.next().value === 21;
+async function finish() {
+  var count = await Promise.resolve(1);
+  return descend(count);
+}
+finish().then(function(value) {
+  document.getElementById('result').textContent = ok && value === 21 ?
+    'PASS: expressoes iterativas, referencias e bridges.' :
+    'FAIL: avaliacao iterativa.';
+});
+</script>
+</body>
+</html>

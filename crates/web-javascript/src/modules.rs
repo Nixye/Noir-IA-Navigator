@@ -10,7 +10,7 @@ const MAX_MODULES: usize = 64;
 const MAX_SOURCE: usize = 128 * 1024;
 const MAX_TOTAL_SOURCE: usize = 512 * 1024;
 const MAX_DEPTH: usize = 64;
-const MAX_ENTRIES: usize = 256;
+pub(crate) const MAX_ENTRIES: usize = 256;
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct ModuleState {
@@ -182,6 +182,7 @@ impl Runtime {
     /// Links the entire available graph before evaluating any module body.
     /// Returns the stable namespace object. Evaluations and failures are cached.
     pub fn execute_module(&mut self, id: &str, host: &mut impl Host) -> Result<Value, JsError> {
+        self.ensure_executable()?;
         let id = absolute_id(id)?;
         self.collect_garbage(&[], host)?;
         let result = self.execute_module_core(&id, host);
@@ -310,21 +311,33 @@ impl Runtime {
         resolve_request(&record.source_url, request)
     }
 
-    pub(super) fn eval_import_call(
+    /// Capture lexical identity before either operand. The URL remains an
+    /// identity for pre-registered modules, never an authority for network I/O.
+    pub(super) fn prepare_import_referrer(&mut self, scope: usize) -> Result<String, JsError> {
+        let owner = self.import_referrer(scope)?;
+        let length = self.modules.records[&owner].source_url.len();
+        self.charge_string(length)?;
+        let mut referrer = String::new();
+        referrer
+            .try_reserve_exact(length)
+            .map_err(|_| JsError::resource("Import referrer storage unavailable"))?;
+        if referrer.capacity() > length {
+            self.charge_string(referrer.capacity() - length)?;
+        }
+        referrer.push_str(&self.modules.records[&owner].source_url);
+        Ok(referrer)
+    }
+
+    /// Operand evaluation is complete before promise creation. Conversion and
+    /// options access are explicit guarded reentrant bridges; a fatal Resource
+    /// remains fatal through settle_async_promise instead of becoming rejection.
+    pub(super) fn import_call_values(
         &mut self,
-        specifier: &Expr,
-        options: Option<&Expr>,
-        scope: usize,
+        referrer: String,
+        specifier: Value,
+        options: Value,
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
-        let owner = self.import_referrer(scope)?;
-        let referrer = self.modules.records[&owner].source_url.clone();
-        // GetValue failures are synchronous and precede the promise capability.
-        let specifier = self.eval(specifier, scope, host)?;
-        let options = match options {
-            Some(expression) => self.eval(expression, scope, host)?,
-            None => Value::Undefined,
-        };
         let promise = self.new_async_promise()?;
         let Value::Object(owner) = promise else {
             unreachable!()

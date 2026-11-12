@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Protótipos de funções</title></head>
+<body><h1>Herança real de funções na VM</h1><p id="result">Aguardando execução.</p>
+<script>
+const parent = { marker: 7 };
+function First() { return 11; }
+function Second() { return 13; }
+const instancePrototype = Second.prototype;
+Object.setPrototypeOf(First, parent);
+Object.setPrototypeOf(Second, First);
+Object.defineProperty(parent, 'ready', {
+  get: function () { return this === Second; }, configurable: true
+});
+const bound = Function.prototype.bind.call(Second, null);
+const valid = Second.marker === 7 && Second.ready && Second() === 13 && First() === 11
+  && 'marker' in Second && Object.getPrototypeOf(First) === parent
+  && Reflect.getPrototypeOf(Second) === First && Object.getPrototypeOf(bound) === First
+  && Second.prototype === instancePrototype && bound() === 13 && !Reflect.setPrototypeOf(parent, Second);
+document.getElementById('result').textContent = valid
+  ? 'Protótipos e receptores de funções ativos.' : 'Falha nos protótipos.';
+</script></body></html>

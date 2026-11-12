@@ -1,5 +1,7 @@
 //! Bounded Array.from. Alternative constructors are deliberately unsupported.
-use crate::{ErrorKind, Heap, Host, JsError, Runtime, Value, language::IteratorRecord};
+use crate::{
+    ErrorKind, Heap, Host, JsError, MAX_ARRAY_LENGTH, Runtime, Value, language::IteratorRecord,
+};
 
 enum FromMethod {
     Custom(Value),
@@ -65,11 +67,21 @@ impl Runtime {
                     let Some(value) = self.array_from_next(&mut iterator, host)? else {
                         return Ok(destination);
                     };
-                    if index >= 4096 {
+                    if index >= MAX_ARRAY_LENGTH {
                         return Err(JsError::resource("Array.from item limit exceeded"));
                     }
-                    // Refuse further mapper callbacks when the next slot cannot fit.
-                    self.check_array_slots(1)?;
+                    // Reserve the slot before mapper execution. Alternative
+                    // constructors are refused, so this destination cannot be
+                    // observed until return. The final write grows by zero and
+                    // must not charge the slot again.
+                    self.charge_array_slots(1)?;
+                    let Value::Array(destination_id) = destination else {
+                        unreachable!()
+                    };
+                    let Heap::Array(values) = &mut self.heap[destination_id] else {
+                        unreachable!()
+                    };
+                    values.push(Value::Undefined);
                     let written =
                         self.array_from_write(&destination, index, value, &mapper, &this_arg, host);
                     if let Err(error) = written {
@@ -92,7 +104,7 @@ impl Runtime {
             } else {
                 length.trunc()
             };
-            if length > 4096. {
+            if length > MAX_ARRAY_LENGTH as f64 {
                 return Err(JsError::resource("Array.from item limit exceeded"));
             }
             let length = length as usize;
@@ -397,7 +409,7 @@ mod tests {
         );
         let mut vm = Runtime::default();
         let error = vm
-            .execute("Array.from({length:4097});", &mut Empty)
+            .execute("Array.from({length:8193});", &mut Empty)
             .unwrap_err();
         assert_eq!(error.kind, ErrorKind::Resource);
         assert!(vm.gc_roots.is_empty());

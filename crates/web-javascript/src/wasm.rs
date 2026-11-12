@@ -269,6 +269,7 @@ impl Runtime {
                     self.wasm_descriptor(exports_id, &export.name, false, true, false);
                 }
                 self.reflection.non_extensible.insert(exports_id);
+                self.reserve_named_property(instance_id, "exports")?;
                 if let Heap::Object(object) = &mut self.heap[instance_id] {
                     object.properties.insert("exports".into(), exported);
                 }
@@ -349,6 +350,7 @@ impl Runtime {
             method: false,
             arrow: true,
             lexical_this: Value::Undefined,
+            internal_prototype: None,
             properties: BTreeMap::from([
                 ("name".into(), function_name),
                 ("length".into(), Value::Number(params.len() as f64)),

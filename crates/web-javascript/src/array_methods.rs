@@ -1,5 +1,5 @@
+use crate::{ArrayHoles, MAX_ARRAY_LENGTH};
 use crate::{Heap, Host, JsError, Runtime, Value, strict_equal};
-use std::collections::BTreeSet;
 
 impl Runtime {
     pub(super) fn array_method(
@@ -15,7 +15,7 @@ impl Runtime {
         let length = values.len();
         match property {
             "push" => {
-                if length + args.len() > 4096 {
+                if length + args.len() > MAX_ARRAY_LENGTH {
                     return Err(JsError::resource("Array item limit exceeded"));
                 }
                 let new_length = length + args.len();
@@ -104,28 +104,40 @@ impl Runtime {
                     return Err(JsError::runtime("Array callback must be callable"));
                 }
                 let this = args.get(1).cloned().unwrap_or(Value::Undefined);
-                if property == "map" {
-                    self.check_array_slots(length)?;
+                let is_map = property == "map";
+                if is_map {
+                    self.charge_array_slots(length)?;
                 }
-                let mut results = vec![Value::Undefined; length];
-                let mut holes = BTreeSet::new();
-                for (index, result) in results.iter_mut().enumerate() {
+                let mut results = if is_map {
+                    vec![Value::Undefined; length]
+                } else {
+                    Vec::new()
+                };
+                let mut holes = ArrayHoles::new();
+                let mut output = results.iter_mut();
+                for index in 0..length {
+                    let target = output.next();
                     self.tick()?;
                     let key = index.to_string();
                     if !self.has_property(&Value::Array(id), &key, host)? {
-                        holes.insert(index);
+                        if is_map {
+                            holes.insert(index)?;
+                        }
                         continue;
                     }
                     let value = self.get(Value::Array(id), &key, host)?;
-                    *result = self.call(
+                    let mapped = self.call(
                         callback.clone(),
                         vec![value, Value::Number(index as f64), Value::Array(id)],
                         this.clone(),
                         host,
                     )?;
+                    if let Some(target) = target {
+                        *target = mapped;
+                    }
                 }
-                if property == "map" {
-                    let result = self.allocate(Heap::Array(results))?;
+                if is_map {
+                    let result = self.allocate_reserved(Heap::Array(results))?;
                     if !holes.is_empty() {
                         self.array_holes.insert(result, holes);
                     }
@@ -147,15 +159,16 @@ impl Runtime {
                 let end = self
                     .array_relative(args.get(1), length, length as f64)?
                     .max(start);
+                self.charge_array_slots(end - start)?;
                 let mut values = Vec::with_capacity(end - start);
-                let mut holes = BTreeSet::new();
+                let mut holes = ArrayHoles::new();
                 for index in start..end {
                     self.tick()?;
                     let key = index.to_string();
                     if self.has_property(&Value::Array(id), &key, host)? {
                         values.push(self.get(Value::Array(id), &key, host)?);
                     } else {
-                        holes.insert(values.len());
+                        holes.insert(values.len())?;
                         values.push(Value::Undefined);
                     }
                 }
@@ -163,27 +176,29 @@ impl Runtime {
             }
             "concat" => {
                 let mut values = Vec::new();
-                let mut holes = BTreeSet::new();
+                let mut holes = ArrayHoles::new();
                 for value in std::iter::once(Value::Array(id)).chain(args) {
                     if let Value::Array(source) = value {
                         let length = self.array_length(source)?;
-                        if values.len().saturating_add(length) > 4096 {
+                        if values.len().saturating_add(length) > MAX_ARRAY_LENGTH {
                             return Err(JsError::resource("Array item limit exceeded"));
                         }
+                        self.charge_array_slots(length)?;
                         for index in 0..length {
                             self.tick()?;
                             let key = index.to_string();
                             if self.has_property(&Value::Array(source), &key, host)? {
                                 values.push(self.get(Value::Array(source), &key, host)?);
                             } else {
-                                holes.insert(values.len());
+                                holes.insert(values.len())?;
                                 values.push(Value::Undefined);
                             }
                         }
                     } else {
-                        if values.len() >= 4096 {
+                        if values.len() >= MAX_ARRAY_LENGTH {
                             return Err(JsError::resource("Array item limit exceeded"));
                         }
+                        self.charge_array_slots(1)?;
                         values.push(value);
                     }
                 }
@@ -218,7 +233,10 @@ impl Runtime {
                         )?
                         .truthy();
                     match property {
-                        "filter" if result => values.push(value),
+                        "filter" if result => {
+                            self.charge_array_slots(1)?;
+                            values.push(value);
+                        }
                         "every" if !result => return Ok(Value::Bool(false)),
                         "some" if result => return Ok(Value::Bool(true)),
                         "find" | "findLast" if result => return Ok(value),
@@ -229,7 +247,7 @@ impl Runtime {
                     }
                 }
                 match property {
-                    "filter" => self.array_result(values, BTreeSet::new()),
+                    "filter" => self.array_result(values, ArrayHoles::new()),
                     "every" => Ok(Value::Bool(true)),
                     "some" => Ok(Value::Bool(false)),
                     "findIndex" | "findLastIndex" => Ok(Value::Number(-1.)),
@@ -361,12 +379,13 @@ impl Runtime {
             }
             "reverse" | "toReversed" => {
                 if property == "toReversed" {
+                    self.charge_array_slots(length)?;
                     let mut values = Vec::with_capacity(length);
                     for index in (0..length).rev() {
                         self.tick()?;
                         values.push(self.get(Value::Array(id), &index.to_string(), host)?);
                     }
-                    return self.array_result(values, BTreeSet::new());
+                    return self.array_result(values, ArrayHoles::new());
                 }
                 for lower in 0..length / 2 {
                     self.tick()?;
@@ -418,9 +437,10 @@ impl Runtime {
             }
             "unshift" => {
                 let count = args.len();
-                if length.saturating_add(count) > 4096 {
+                if length.saturating_add(count) > MAX_ARRAY_LENGTH {
                     return Err(JsError::resource("Array item limit exceeded"));
                 }
+                self.check_array_slots(count)?;
                 if count > 0 {
                     for from in (0..length).rev() {
                         self.array_move(id, from, from + count, host)?;
@@ -453,10 +473,11 @@ impl Runtime {
                 };
                 let insert = args.len().saturating_sub(2);
                 let new_length = length - deleted + insert;
-                if new_length > 4096 {
+                if new_length > MAX_ARRAY_LENGTH {
                     return Err(JsError::resource("Array item limit exceeded"));
                 }
                 if property == "toSpliced" {
+                    self.charge_array_slots(new_length)?;
                     let mut values = Vec::with_capacity(new_length);
                     for index in 0..start {
                         self.tick()?;
@@ -467,17 +488,19 @@ impl Runtime {
                         self.tick()?;
                         values.push(self.get(Value::Array(id), &index.to_string(), host)?);
                     }
-                    return self.array_result(values, BTreeSet::new());
+                    return self.array_result(values, ArrayHoles::new());
                 }
+                self.charge_array_slots(deleted)?;
+                self.check_array_slots(new_length.saturating_sub(length))?;
                 let mut values = Vec::with_capacity(deleted);
-                let mut holes = BTreeSet::new();
+                let mut holes = ArrayHoles::new();
                 for index in start..start + deleted {
                     self.tick()?;
                     let key = index.to_string();
                     if self.has_property(&Value::Array(id), &key, host)? {
                         values.push(self.get(Value::Array(id), &key, host)?);
                     } else {
-                        holes.insert(values.len());
+                        holes.insert(values.len())?;
                         values.push(Value::Undefined);
                     }
                 }
@@ -577,7 +600,7 @@ impl Runtime {
                     }
                     self.array_flatten(value, depth, 0, &mut values, host)?;
                 }
-                self.array_result(values, BTreeSet::new())
+                self.array_result(values, ArrayHoles::new())
             }
             "sort" | "toSorted" => {
                 let compare = args
@@ -589,6 +612,9 @@ impl Runtime {
                     .is_some_and(|value| !self.is_callable_value(value, host))
                 {
                     return Err(self.property_type_error("Array comparison must be callable"));
+                }
+                if property == "toSorted" {
+                    self.charge_array_slots(length)?;
                 }
                 let mut values = Vec::new();
                 for index in 0..length {
@@ -631,7 +657,7 @@ impl Runtime {
                     }
                 }
                 if property == "toSorted" {
-                    return self.array_result(values, BTreeSet::new());
+                    return self.array_result(values, ArrayHoles::new());
                 }
                 let count = values.len();
                 for (index, value) in values.into_iter().enumerate() {
@@ -674,12 +700,9 @@ impl Runtime {
             n.min(length as f64) as usize
         })
     }
-    fn array_result(
-        &mut self,
-        values: Vec<Value>,
-        holes: BTreeSet<usize>,
-    ) -> Result<Value, JsError> {
-        let id = self.allocate(Heap::Array(values))?;
+    fn array_result(&mut self, values: Vec<Value>, holes: ArrayHoles) -> Result<Value, JsError> {
+        // Every producer reserves result slots before its buffer grows.
+        let id = self.allocate_reserved(Heap::Array(values))?;
         if !holes.is_empty() {
             self.array_holes.insert(id, holes);
         }
@@ -738,9 +761,10 @@ impl Runtime {
                 }
             }
         } else {
-            if output.len() >= 4096 {
+            if output.len() >= MAX_ARRAY_LENGTH {
                 return Err(JsError::resource("Array item limit exceeded"));
             }
+            self.charge_array_slots(1)?;
             output.push(value);
         }
         Ok(())

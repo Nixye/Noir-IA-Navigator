@@ -17,11 +17,26 @@ fn asset(src: &str, source: &str) -> ScriptAsset {
 #[test]
 fn resource_budget_context_reaches_report_without_source_or_invented_position() {
     for (source, context) in [
-        (";".repeat(32_769), "lexer tokens=32769 limit=32768"),
-        (";".repeat(16_385), "parser nodes=16385 limit=16384"),
+        (";".repeat(40_961), "lexer tokens=40961 limit=40960"),
+        ("? ".repeat(32_769), "payload-context-tokens=32769 limit=32768"),
+        (";".repeat(16_385), "parser visits=16385 limit=16384"),
         (
-            "document.body.textContent='PRIVATE_EFFECT';try{Array(5868);}catch(e){}".into(),
-            "array operation=construct requested-length=5.868e3 limit=4096",
+            format!("{}1{}", "(".repeat(16_385), ")".repeat(16_385)),
+            "parser group-visits=16385 limit=16384",
+        ),
+        (
+            std::iter::repeat_n("if(0);", 4097)
+                .collect::<Vec<_>>()
+                .join("else "),
+            "If-chain length budget exceeded",
+        ),
+        (
+            "document.body.textContent='PRIVATE_EFFECT';try{Array(8193);}catch(e){}".into(),
+            "array operation=construct requested-length=8.193e3 limit=8192",
+        ),
+        (
+            "document.body.textContent='PRIVATE_EFFECT';var a='x'.repeat(65536);try{a+a+'x';}catch(e){}".into(),
+            "string operation=concat left-bytes=131072 right-bytes=1 result-bytes=131073 limit=131072",
         ),
     ] {
         let mut s = session(&format!(
@@ -441,4 +456,51 @@ fn template_subparser_offsets_are_not_mapped_to_classic_or_module_source() {
         assert!(!warning.contains("line="), "{warning}");
         assert!(!warning.contains("column="), "{warning}");
     }
+}
+
+#[test]
+fn larger_concatenation_and_eval_update_dom_without_expanding_host_strings() {
+    let mut s = session("<body><p id='result'>pending</p></body>");
+    s.execute("var padding=' '.repeat(35000);var source=padding+padding+'40+2';document.getElementById('result').textContent=String(eval(source));").unwrap();
+    let result = s.query_selector("#result").unwrap().unwrap();
+    assert_eq!(s.document.text_content(result), "42");
+    assert!(!s.scripts_disabled);
+    let error = s
+        .execute("document.getElementById('result').textContent='bad';document.getElementsByTagName(source);")
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Resource);
+    assert_eq!(s.document.text_content(result), "42");
+    assert!(s.scripts_disabled);
+}
+
+#[test]
+fn compact_lexer_fixture_executes_large_source_and_updates_dom() {
+    let mut s = session(include_str!(
+        "../../../fixtures/javascript-compact-lexer.html"
+    ));
+    let report = s.run_initial(&[]);
+    assert_eq!(report.executed, 1, "{:?}", report.warnings);
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    let result = s.query_selector("#result").unwrap().unwrap();
+    assert_eq!(
+        s.document.text_content(result),
+        "PASS: lexer compacto limitado."
+    );
+    assert!(!s.scripts_disabled);
+}
+
+#[test]
+fn bounded_call_lists_and_iterative_groups_update_dom_in_one_script() {
+    let mut s = session(include_str!(
+        "../../../fixtures/javascript-call-storage.html"
+    ));
+    let report = s.run_initial(&[]);
+    assert_eq!(report.executed, 1, "{:?}", report.warnings);
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    let result = s.query_selector("#result").unwrap().unwrap();
+    assert_eq!(
+        s.document.text_content(result),
+        "PASS: chamadas reservadas e grupos iterativos."
+    );
+    assert!(!s.scripts_disabled);
 }

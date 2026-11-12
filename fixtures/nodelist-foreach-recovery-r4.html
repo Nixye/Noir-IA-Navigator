@@ -1,0 +1,42 @@
+<!doctype html>
+<title>R4 pending</title>
+<style>
+.card { width: 240px; height: 48px; background: #dddddd; }
+.card.ready { background: #2468ac; }
+.card.selected { background: #008844; }
+</style>
+<div id="a" class="card">Alpha<button id="picka" type="button">ChooseAlpha</button></div>
+<div id="b" class="card">Beta<button id="pickb" type="button">ChooseBeta</button></div>
+<script>
+var cards = document.querySelectorAll('.card');
+var context = {initialized: 0};
+var indices = '';
+var receiverCorrect = true;
+var jobs = 0;
+var frames = 0;
+var clicks = 0;
+// This call is deliberately the first new capability exercised on the R3 baseline.
+cards.forEach(function (card, index, receiver) {
+  this.initialized += 1;
+  indices += String(index);
+  receiverCorrect = receiverCorrect && receiver === cards;
+  card.classList.add('ready');
+  card.querySelector('button').addEventListener('click', function () {
+    clicks += 1;
+    cards.forEach(function (other) { other.classList.remove('selected'); });
+    card.classList.add('selected');
+    document.title = clicks === 1 && jobs === 1 && frames === 1 &&
+      context.initialized === 2 ? 'R4 clicked' + index : 'R4 failed';
+  });
+}, context);
+document.title = context.initialized === 2 && indices === '01' && receiverCorrect
+  ? 'R4 ready' : 'R4 failed';
+Promise.resolve().then(function () { jobs += 1; });
+requestAnimationFrame(function () {
+  frames += 1;
+  cards.item(1).classList.add('selected');
+  document.title = jobs === 1 && frames === 1 && context.initialized === 2 &&
+    cards.item(0) === document.getElementById('a') && cards.item(2) === null
+    ? 'R4 frame' : 'R4 failed';
+});
+</script>

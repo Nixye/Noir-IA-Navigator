@@ -1,7 +1,9 @@
 //! Renderer-owned synchronous layout service for DOM measurement reads.
-use browser_ipc::{ImageAsset, StylesheetAsset, Viewport};
+use browser_ipc::{ImageAsset, Rect, StylesheetAsset, Viewport};
 use std::sync::Arc;
-use web_bindings::{GeometryResolver, GeometrySnapshot, NodeGeometry};
+use web_bindings::{
+    BoundingGeometry, GeometryResolver, GeometrySnapshot, NodeGeometry, UnsupportedGeometry,
+};
 use web_dom::{Document, DocumentMode, MAX_NODES, NodeKind};
 use web_javascript::JsError;
 
@@ -55,6 +57,22 @@ impl GeometryResolver for PageGeometry {
         let layout = web_layout::layout(&dom, &computed.styles, &self.images, self.viewport)
             .map_err(JsError::resource)?;
         let mut nodes = vec![NodeGeometry::default(); dom.nodes.len()];
+        for (id, reason) in layout.unsupported_geometry.iter().enumerate() {
+            if let Some(reason) = reason {
+                nodes[id].bounding = BoundingGeometry::Unsupported(match reason {
+                    web_layout::UnsupportedGeometry::Inline => UnsupportedGeometry::Inline,
+                    web_layout::UnsupportedGeometry::TableStructure => {
+                        UnsupportedGeometry::TableStructure
+                    }
+                    web_layout::UnsupportedGeometry::InlineImageDecoration => {
+                        UnsupportedGeometry::InlineImageDecoration
+                    }
+                    web_layout::UnsupportedGeometry::AtomicContents => {
+                        UnsupportedGeometry::AtomicContents
+                    }
+                });
+            }
+        }
         for (id, metrics) in layout.boxes.iter().enumerate() {
             let Some(metrics) = metrics else {
                 continue;
@@ -68,14 +86,19 @@ impl GeometryResolver for PageGeometry {
                     DocumentMode::NoQuirks | DocumentMode::LimitedQuirks
                 ))
                 || (element.tag == "body" && dom.mode == DocumentMode::Quirks);
-            if dom.mode == DocumentMode::UnsupportedDoctype
-                && matches!(element.tag.as_str(), "html" | "body")
-            {
-                return Err(JsError::runtime(
-                    "Client viewport dimensions for this document mode are not implemented",
-                ));
-            }
             nodes[id] = NodeGeometry {
+                client_available: !(dom.mode == DocumentMode::UnsupportedDoctype
+                    && matches!(element.tag.as_str(), "html" | "body")),
+                bounding: if layout.unsupported_geometry[id].is_some() {
+                    nodes[id].bounding
+                } else {
+                    BoundingGeometry::Box(Rect {
+                        x: metrics.x,
+                        y: metrics.y,
+                        width: metrics.width,
+                        height: metrics.height,
+                    })
+                },
                 client_width: if viewport_box {
                     self.viewport.width
                 } else {
@@ -90,6 +113,99 @@ impl GeometryResolver for PageGeometry {
                 client_top: metrics.border.min(metrics.height).max(0.),
             };
         }
-        Ok(GeometrySnapshot { nodes })
+        Ok(GeometrySnapshot {
+            nodes,
+            document_width: layout.width,
+            document_height: layout.height,
+        })
+    }
+}
+
+#[cfg(test)]
+mod recovery_r5_tests {
+    use super::*;
+    fn resolve(source: &str) -> (Document, GeometrySnapshot) {
+        let d = web_html::parse(&format!("<style>body{{margin:0}}</style>{source}")).unwrap();
+        let provider = PageGeometry {
+            viewport: Viewport::default(),
+            images: Arc::new(vec![]),
+            stylesheets: Arc::new(vec![]),
+        };
+        let result = provider.resolve(&d).unwrap();
+        (d, result)
+    }
+    fn node(d: &Document, name: &str) -> usize {
+        d.elements()
+            .find(|(_, e)| e.attr("id") == Some(name))
+            .unwrap()
+            .0
+    }
+    #[test]
+    fn provider_transports_document_coordinates_not_client_dimensions() {
+        let (d, s) = resolve(
+            "<div id=x style='position:relative;left:12.5px;top:9.25px;width:20px;height:10px;padding:2px;border:1px solid red'></div>",
+        );
+        let g = &s.nodes[node(&d, "x")];
+        let BoundingGeometry::Box(r) = g.bounding else {
+            panic!("expected principal box")
+        };
+        assert_eq!((r.x, r.y, r.width, r.height), (12.5, 9.25, 26., 16.));
+        assert_eq!(
+            (g.client_width, g.client_height, g.client_left),
+            (24., 14., 1.)
+        );
+        assert!(s.document_width >= Viewport::default().width);
+        assert!(s.document_height >= Viewport::default().height);
+    }
+    #[test]
+    fn provider_distinguishes_unsupported_and_no_box() {
+        let (d, s) = resolve(
+            "<span id=x>text</span><span id=n style='display:none'>text</span><button><span id=a>text</span></button>",
+        );
+        assert!(matches!(
+            s.nodes[node(&d, "x")].bounding,
+            BoundingGeometry::Unsupported(UnsupportedGeometry::Inline)
+        ));
+        assert!(matches!(
+            s.nodes[node(&d, "n")].bounding,
+            BoundingGeometry::NoBox
+        ));
+        assert!(matches!(
+            s.nodes[node(&d, "a")].bounding,
+            BoundingGeometry::Unsupported(UnsupportedGeometry::AtomicContents)
+        ));
+    }
+    #[test]
+    fn detached_element_is_not_measured_or_classified_as_inline() {
+        let mut d = web_html::parse("<span id=x>text</span>").unwrap();
+        let n = node(&d, "x");
+        let parent = d.nodes[n].parent.unwrap();
+        d.nodes[parent].children.retain(|child| *child != n);
+        d.nodes[n].parent = None;
+        let provider = PageGeometry {
+            viewport: Viewport::default(),
+            images: Arc::new(vec![]),
+            stylesheets: Arc::new(vec![]),
+        };
+        let s = provider.resolve(&d).unwrap();
+        assert!(matches!(s.nodes[n].bounding, BoundingGeometry::NoBox));
+    }
+    #[test]
+    fn unsupported_document_mode_disables_only_client_viewport_exception() {
+        let mut d = web_html::parse("<body><div id=x style='width:20px;height:10px'></div></body>")
+            .unwrap();
+        d.mode = DocumentMode::UnsupportedDoctype;
+        let provider = PageGeometry {
+            viewport: Viewport::default(),
+            images: Arc::new(vec![]),
+            stylesheets: Arc::new(vec![]),
+        };
+        let s = provider.resolve(&d).unwrap();
+        assert!(!s.nodes[d.document_element().unwrap()].client_available);
+        assert!(matches!(
+            s.nodes[d.body().unwrap()].bounding,
+            BoundingGeometry::Box(_)
+        ));
+        assert!(s.nodes[node(&d, "x")].client_available);
     }
 }

@@ -58,7 +58,7 @@ Throw/return/rejeição não completam escrita pendente; finally segue o tratame
 
 O [décimo oitavo incremento, acessos resumíveis](../releases/2026-11-08-resumable-access.md), está em implementação parcial, com revisão textual concluída e checagem estática aprovada, sem validação funcional; item 1 ABERTO. Leituras Member ordinárias aceitam await/yield na base/chave, e chamadas ordinárias no callee, inclusive em base/chave de métodos e expressões que produzem funções. A ordem é base, expressão-chave, verificação nullish, ToPropertyKey, get/getter, argumentos, chamada. A chave é avaliada mesmo sobre null/undefined, mas não é convertida nesse caso; erro da expressão-chave prevalece. Essa correção também se aplica à leitura Member comum. Base/chave não são repetidas, Symbol conserva identidade e receiver/alvo são capturados antes dos argumentos. Getter que lança impede argumentos; alvo não chamável falha depois deles. A chamada comum de primitivos e Host não chamáveis lança TypeError capturável após os argumentos. Métodos Host nomeados mantêm LegacyMethod sem inventar getters.
 
-Base/chave/alvo/receiver/argumentos/continuação são raízes de GC, com deduplicação e teto global de 4096. A coleta explícita não coleta enquanto algum owner resumível está em execução, inclusive durante callbacks Host diretos com profundidades de call/eval/dynamic zeradas; isso preserva escopos e frames da máquina ativa temporariamente fora do mapa. Até 32 argumentos, interrompendo antes de avaliar o 33º; profundidade combinada de 256 e demais limites compartilhados permanecem, sem garantia de capacidade simultânea. Erros de recursos são fatais. O incremento 18 não ampliou LHS/assign/update/delete; o incremento 19 acima amplia somente Member ordinário em atribuições e updates. Continuam as recusas de referências suspensíveis private/super, new, argumentos de eval direto, spread de chamada, objetos/classes, padrões/cases/labels/tagged templates/import, top-level await ou módulos assíncronos. Eval indireto por callee permanece dentro das fronteiras existentes. A fixture [javascript-resumable-access.html](../../fixtures/javascript-resumable-access.html) não foi executada.
+Base/chave/alvo/receiver/argumentos/continuação são raízes de GC, com deduplicação e teto global de 4096. A coleta explícita não coleta enquanto algum owner resumível está em execução, inclusive durante callbacks Host diretos com profundidades de call/eval/dynamic zeradas; isso preserva escopos e frames da máquina ativa temporariamente fora do mapa. Até 64 argumentos, interrompendo antes de avaliar o 65º; profundidade combinada de 256 e demais limites compartilhados permanecem, sem garantia de capacidade simultânea. Erros de recursos são fatais. O incremento 18 não ampliou LHS/assign/update/delete; o incremento 19 acima amplia somente Member ordinário em atribuições e updates. Continuam as recusas de referências suspensíveis private/super, new, argumentos de eval direto, spread de chamada, objetos/classes, padrões/cases/labels/tagged templates/import, top-level await ou módulos assíncronos. Eval indireto por callee permanece dentro das fronteiras existentes. A fixture [javascript-resumable-access.html](../../fixtures/javascript-resumable-access.html) não foi executada.
 
 O [décimo sétimo incremento, literais resumíveis](../releases/2026-11-08-resumable-literals.md), está em implementação parcial, com revisão textual concluída e checagem estática aprovada, sem validação funcional. Arrays (elementos, holes e operandos de spread) e templates não marcados admitem await/yield apenas nas posições já habilitadas da máquina. A avaliação segue esquerda para direita sem replay; cada interpolação completa ToString antes da próxima parte. A conversão usa o Host e hint string, respeita Symbol.toPrimitive/toString/valueOf, recusa Symbol implícito com TypeError e preserva String(Symbol) explícito, BigInt orçado e unidades UTF-16/surrogates.
 
@@ -117,7 +117,7 @@ O conjunto de funções inclui `String`, `Number`, `Boolean`, `parseInt`, `parse
 
 O operador vírgula avalia da esquerda para a direita, devolvendo o último valor, sem consumir separadores de argumentos, arrays ou declaradores. `catch` recebe o valor original lançado (inclusive identidade de objetos); erros de execução do host são expostos como objetos Error limitados com nome e mensagem. `finally` preserva o resultado anterior quando termina normalmente, ou substitui retorno/lançamento/controle de fluxo quando produz uma conclusão abrupta. Erros de recursos não podem ser capturados nem suprimidos por finally.
 
-`new` aceita funções comuns do próprio runtime, cria uma instância com o protótipo atual da função e usa o objeto explicitamente retornado pelo construtor quando existir. Propriedades em funções e herança de leitura por protótipos próprios são limitadas; a busca termina com erro de recurso após 64 níveis. Arrows não são construtoras. `Function.call` e `Function.apply` diretos preservam o receptor; apply aceita arrays com até 32 argumentos. Funções comuns recebem uma representação array de arguments; ela não implementa os aliases de parâmetros e todos os descritores do Arguments Object.
+`new` aceita funções comuns do próprio runtime, cria uma instância com o protótipo atual da função e usa o objeto explicitamente retornado pelo construtor quando existir. Propriedades em funções e herança de leitura por protótipos próprios são limitadas; a busca termina com erro de recurso após 64 níveis. Arrows não são construtoras. `Function.call` e `Function.apply` diretos preservam o receptor; apply admite até 64 argumentos, sob reserva cumulativa de armazenamento antes da cópia. Funções comuns recebem uma representação array de arguments; ela não implementa os aliases de parâmetros e todos os descritores do Arguments Object.
 
 `Object`, `Array`, `Error`, `TypeError`, `RangeError`, `ReferenceError` e `SyntaxError` possuem construções limitadas. Há `Array.isArray`, `String.fromCharCode` (recusa substitutos UTF-16 isolados), `Object.create`, `getPrototypeOf`, `hasOwn`, `keys`, `values` e `entries` para os valores ordinários documentados. Descritores, wrappers primitivos e cadeias completas de protótipos nativos não estão implementados. Enumeração de propriedades nomeadas usa a ordem lexical interna, sem conformidade com a ordem de inserção ECMAScript. Na 0.6, arrays passaram a distinguir posições ausentes de posições contendo undefined; os detalhes de protótipos e enumeração estão abaixo. Esses limites continuam impedindo conformidade ECMAScript geral.
 
@@ -227,16 +227,20 @@ Erros ordinários de execução e throw interrompem aquela execução sem desfaz
 | --- | --- |
 | Código de um script | 128 KiB |
 | Código inicial acumulado | 512 KiB, até 64 scripts |
-| Tokens / nós de AST por script | 32.768 / 16.384 |
+| Slots do lexer por lexagem (x64) | 40.960, mais EOF, sob guarda de bytes de metadados |
+| Tokens com payload ou push de contexto por lexagem | 32.768, inclusive dentro do teto de slots |
+| Entradas de gramática/validação por compilação | 16.384, excluindo agrupamentos; não contam toda a AST ou suas alocações |
+| Visitas de agrupamento por compilação | 16.384 cumulativas separadas; até 32.768 entradas combinadas, não o total anterior |
 | Profundidade de parsing/avaliação e cadeia | 64 |
 | Instruções da sessão VM | 100.000 |
-| Profundidade de chamadas (incluindo chamadas nativas recursivas) | 32 |
+| Profundidade de chamadas (incluindo chamadas nativas recursivas) | 16 |
+| Parâmetros de função / argumentos por chamada JavaScript | 64 / 64; buffers sujeitos às 65.536 células cumulativas compartilhadas com arrays |
 | Busca de protótipos | 64 |
 | Objetos / escopos | 4.096 / 4.096 |
 | Bindings totais / por escopo | 16.384 / 1.024 |
-| Itens por array / propriedades de objeto | 4.096 / 128 |
-| Propriedades globais adicionais | Um objeto do heap, até 128 propriedades; globais `var` permanecem sujeitos ao orçamento de bindings |
-| String individual / bytes alocados de strings | 64 KiB / 4 MiB |
+| Comprimento de Array / propriedades ordinárias por owner | 8.192 / 4.096; sujeitos a quotas agregadas e limites independentes |
+| Propriedades globais adicionais | Armazenamento VM com até 4.096 nomes e quotas agregadas; globais `var` mantêm limites de bindings |
+| String individual / bytes alocados de strings | 64 KiB nos produtores existentes; 128 KiB em concatenação / 4 MiB cumulativos |
 | Listeners / timers / listas DOM | 128 / 128 / 64 |
 | Trabalho de leitura DOM | 2 milhões de unidades de travessia |
 | Mutações DOM / strings de mutação | 2.048 / 256 KiB |
@@ -319,11 +323,11 @@ O endereço fornecido e sua serialização ficam limitados a 8192 bytes. Nomes d
 
 `eval` interpreta strings no lexer/parser/interpretador próprios. Chamadas diretas ao intrínseco `eval` resolvem o ambiente lexical do chamador; aliases, `(0, eval)` e chamadas como propriedade usam o ambiente global. Argumentos não string são devolvidos sem coerção; sem argumento, o resultado é undefined. `let` e `const` permanecem no escopo do eval, enquanto `var` e funções declaradas no nível imediato usam o escopo de função do chamador ou o global. Closures conservam os escopos criados. Nenhuma dessas operações adiciona ferramentas, acesso ao broker, arquivos ou transporte de rede.
 
-`Function(...)` e `new Function(...)` criam funções reais da VM no ambiente global, sem capturar variáveis locais do chamador. Os argumentos anteriores ao último formam os parâmetros; o último é o corpo. São aceitos até 32 nomes simples e únicos. Parâmetros e corpo são analisados como gramáticas separadas: texto de parâmetros não pode fechar um wrapper e inserir instruções fora da função. Valores seguem a coerção limitada da VM; conversão de fonte de funções e coerções de objetos exóticos continuam incompletas.
+`Function(...)` e `new Function(...)` criam funções reais da VM no ambiente global, sem capturar variáveis locais do chamador. Os argumentos anteriores ao último formam os parâmetros; o último é o corpo. São aceitos até 64 nomes simples e únicos. Parâmetros e corpo são analisados como gramáticas separadas: texto de parâmetros não pode fechar um wrapper e inserir instruções fora da função. Valores seguem a coerção limitada da VM; conversão de fonte de funções e coerções de objetos exóticos continuam incompletas.
 
 O parsing completo e a verificação estática de colisões entre declarações precedem os efeitos das expressões dinâmicas. Antes do eval também se verificam colisões de var/função com bindings lexicais existentes entre o chamador e seu escopo de função. Erros de sintaxe produzidos durante a execução são capturáveis por catch, com name SyntaxError; os erros de recurso permanecem não capturáveis. A ausência de modo estrito não é ignorada: uma diretiva `use strict` no eval ou nos corpos de funções do código dinâmico produz erro explícito antes da execução. O reconhecimento dessa diretiva usa a AST do subconjunto e pode também recusar uma string inicial parentizada com o mesmo conteúdo.
 
-Cada fonte dinâmica possui limite de **64 KiB**, incluindo o total de parâmetros/corpo e separadores de Function. O orçamento cumulativo é de **256 KiB por VM**, inclusive tentativas com sintaxe inválida; rollback não devolve esse orçamento. Até **oito avaliações dinâmicas podem estar aninhadas**. Continuam valendo os limites de tokens, nós de AST, profundidade, instruções, chamadas, escopos, bindings, heap e strings. O código dinâmico compartilha o orçamento de execução da página e não recebe uma nova sessão de instruções.
+Cada fonte de eval possui limite de **128 KiB**. Function mantém **64 KiB**, incluindo o total de parâmetros/corpo e separadores. O orçamento cumulativo é de **256 KiB por VM**, inclusive tentativas com sintaxe inválida; rollback não devolve esse orçamento. Até **oito avaliações dinâmicas podem estar aninhadas**. Continuam valendo os limites de tokens, nós de AST, profundidade, instruções, chamadas, escopos, bindings, heap e strings. O código dinâmico compartilha o orçamento de execução da página e não recebe uma nova sessão de instruções.
 
 O resultado de eval acompanha o valor das instruções do subconjunto: expressões devolvem seu valor e declarações/empty statements no nível imediato não apagam o valor anterior. A semântica completa de Completion Records ainda não está implementada: laços e combinações de blocos/controle de fluxo podem devolver undefined onde ECMAScript conservaria um valor anterior. Modo estrito, parâmetros com defaults/rest/destructuring, módulos, classes e as outras limitações da linguagem continuam fora do contrato. Isso remove o erro específico `eval is not defined`, sem declarar Google Search ou YouTube funcionais.
 
@@ -337,9 +341,9 @@ A fixture [javascript-eval.html](../../fixtures/javascript-eval.html) apresenta 
 
 O vínculo oferece propriedades próprias length e name não enumeráveis, configuráveis e inicialmente não graváveis. Length subtrai o número de argumentos prefixados do comprimento numérico do alvo, com mínimo zero. Name usa o nome string disponível, prefixado por `bound `. Funções ordinárias ainda não oferecem inferência completa de nomes declarados/atribuídos; métodos host sem metadados próprios de nome/comprimento usam nome vazio e comprimento zero. A disponibilidade dessas propriedades não equivale ao contrato completo de reflexão ECMAScript.
 
-`apply` aceita null/undefined como lista vazia ou objetos array-like, lendo length antes dos índices em ordem, inclusive getters e propriedades herdadas no subconjunto existente. Coerção de length de primitivos segue o runtime; coerção exótica de objetos permanece recusada. Primitivos usados como lista de argumentos produzem TypeError. O máximo é de 32 argumentos; comprimento maior é recusado antes de alocar a lista ou executar getters indexados.
+`apply` aceita null/undefined como lista vazia ou objetos array-like, lendo length antes dos índices em ordem, inclusive getters e propriedades herdadas no subconjunto existente. Coerção de length de primitivos segue o runtime; coerção exótica de objetos permanece recusada. Primitivos usados como lista de argumentos produzem TypeError. O máximo é de 64 argumentos; comprimento maior é recusado antes de alocar a lista ou executar getters indexados.
 
-Funções vinculadas consomem objetos do heap e seus argumentos retidos consomem o orçamento agregado de 65.536 posições, além das instruções correspondentes. Prefixo combinado e argumentos finais ficam limitados a 32; cada encaminhamento participa do limite de pilha já existente. Nome permanece limitado a 64 KiB e recebe cobrança de strings antes de armazenar o vínculo. Erros de recursos continuam não capturáveis. Falhas `Value is not callable` em chamadas por propriedade/nome passam a incluir um contexto limitado a 96 caracteres, sem substituir o erro por uma chamada simulada.
+Funções vinculadas consomem objetos do heap e seus argumentos retidos consomem o orçamento agregado de 65.536 posições, além das instruções correspondentes. Prefixo combinado e argumentos finais ficam limitados a 64; cada encaminhamento participa do limite de pilha já existente. Nome permanece limitado a 64 KiB e recebe cobrança de strings antes de armazenar o vínculo. Erros de recursos continuam não capturáveis. Falhas `Value is not callable` em chamadas por propriedade/nome passam a incluir um contexto limitado a 96 caracteres, sem substituir o erro por uma chamada simulada.
 
 O contrato Host possui um hook de chamada com o runtime atual para permitir leitura de dicionários reais e getters por APIs Web. Essa ponte não fornece rede, arquivos ou ferramentas privilegiadas; valores e chamadas continuam restritos ao worker. A fixture [javascript-callables.html](../../fixtures/javascript-callables.html) acompanha os casos para avaliação manual. Não foram executados testes, check, Clippy, navegação ou avaliação dessa fixture nesta etapa, conforme solicitado.
 
@@ -431,3 +435,94 @@ O objeto global fornecido por Host::global_object admite descritores de dados/ac
 ## Propriedades do construtor Number — 2026-11-09
 
 Number usa armazenamento VM para descritores string/símbolo, com identidade chamável preservada, constantes numéricas e flags reais. Object/Reflect, accessors, exclusão, integridade, GC e rollback compartilham esse estado. Number.parseInt/parseFloat mantêm seus aliases globais; constantes e prototype continuam não configuráveis. A permissão é restrita a Number e Symbol, sem liberar outros Native/Host. Coerção Native por operadores e mudança de protótipo interno continuam limitadas. Tetos existentes de propriedades, símbolos, chaves, heap e trabalho permanecem ativos. [Contrato e fixture](../releases/2026-11-09-number-constructor-descriptors.md).
+
+
+## Atualização: reservas cumulativas de propriedades e arrays
+
+Objetos ordinários, funções e propriedades nomeadas de arrays/globais VM admitem até 4096 nomes por owner, com até 65536 reservas cumulativas, 8 MiB de bytes de chaves cobrados por cópias e 4 Mi unidades de trabalho. Number/Symbol, RegExp, stdlib e hosts especiais mantêm restrições. Descriptors de índices de Array usam débito agregado separado do teto de nomes.
+
+O comprimento de Array passa a 8192 sob o mesmo agregado 65536 de posições. Holes usam bitmap de até 1024 bytes de payload; valores continuam densos. Construtores, expansão e resultados de métodos fazem preflight/reservas, sem reembolso por GC/delete/rollback. Literais/spread/rest, iteração genérica, enumeração, strings, parser, heap e instruções padrão mantêm limites próprios; não se declara suporte ilimitado.
+
+Estes limites substituem os tetos históricos correspondentes nas seções anteriores. Veja os contratos de [propriedades](property-budgets.md), [arrays](array-storage.md) e [ADR 0025](../adr/0025-cumulative-property-and-array-storage.md).
+
+
+## Mutação do protótipo interno de funções — 2026-11-09
+
+Object.setPrototypeOf e Reflect.setPrototypeOf compartilham mutação real de objetos ordinários e funções VM. O slot interno é distinto de function.prototype e é observado por leitura/escrita, símbolos, reflexão, enumeração, instanceof, bind e GC/rollback. Cadeias mistas usam caminhada iterativa limitada; Resource não permite escrita após truncamento. Arrays, construtores class e Native/Host genéricos continuam restritos. [Contrato e fixture](../releases/2026-11-09-function-prototype-mutation.md).
+
+### Profundidade e pilha nativa
+
+O limite de 64 níveis de expressão considera a estrutura composta por grupos e cadeias, antes da validação da AST. A execução limita a 64 os statements ativos, compartilhados por chamadas e reentrâncias; exceder o teto gera `Resource: Statement evaluation depth exceeded`, sem executar `catch`/`finally` da página. Chamadas continuam limitadas a 16 e a avaliação de expressões a 64. Os contadores são liberados em saídas normais e por erro. A refatoração dos quadros de parser/VM e as travessias iterativas de declarações/validação não ampliam a pilha dos processos.
+
+
+## Concatenação com reserva anterior à cópia — 2026-11-09
+
+O operador + em strings e String.concat aceitam até 128 KiB na representação final. A montagem reserva o buffer temporário e o payload Arc antes da cópia, dentro dos 4 MiB cumulativos já existentes; rollback e GC não devolvem essas reservas. UTF-8 usa um caminho direto, enquanto UTF-16 é medido sem buffers intermediários e mantém surrogates isolados ou pares formados entre operandos. A ordem das coerções observáveis é preservada.
+
+Eval aceita fonte de até 128 KiB, empresta UTF-8 imutável e reserva antes da conversão UTF-16. Function permanece em 64 KiB, fontes dinâmicas somadas em 256 KiB e aninhamento em oito. Tokens, AST, pilha e instruções continuam independentes. Outros produtores, conversões host, regex e JSON mantêm suas quotas; métodos de string podem recusar resultados grandes por seus próprios limites de trabalho. [Contrato e fixture](../releases/2026-11-09-bounded-string-concatenation.md).
+
+
+## Lexer compacto e agrupamento sem probes descartados
+
+Pontuação usa strings estáticas e o payload de RegExp fica em caixa limitada pelas 64 regexes existentes. Em x64, cada token ocupa 48 bytes em vez de 64. Até 40.960 tokens mais EOF e todas as caixas cabem em 1.969.200 bytes solicitados de metadados, abaixo do teto anterior de 2.097.216 bytes. O teto físico é reduzido automaticamente se o layout de outro alvo exigir. Payloads e pushes dos contextos de regex conservam um teto separado de 32.768. Literais, fonte, visitas, profundidade e execução mantêm seus limites independentes.
+
+Parênteses são ligados por uma passagem linear sem alocação auxiliar. O parser só analisa parâmetros quando o fechamento é seguido por `=>` sem quebra de linha. Agrupamentos deixam de construir e descartar padrões, inclusive expressões de vírgula com mais de 32 nomes. O recorte posterior de [listas reservadas](../releases/2026-11-09-bounded-call-lists-and-parser-groups.md) admite até 64 parâmetros e argumentos sob quotas cumulativas, mantendo os limites independentes. Visitas consumidas por uma interpolação de template são preservadas também se ela falhar.
+
+O limite de visitas não mede a AST inteira, seus bytes nem o consumo total da VM. Os limites léxicos são por lexagem; interpolações de templates são lexadas separadamente. Não há alegação de redução de memória em todas as entradas: pequenas fontes com muitas regexes podem precisar de mais bytes por causa das caixas. Veja [escopo e verificação](../releases/2026-11-09-compact-lexer.md).
+
+
+## Listas de chamadas reservadas e grupos iterativos
+
+Parâmetros/argumentos JavaScript têm teto de 64, aplicado também a adapters, construções, classes e chamadas suspensas. Buffers variáveis reservam capacidade antes da cópia dentro das 65.536 células cumulativas compartilhadas com arrays, sem reposição por GC ou rollback. Nomes de bindings são visitados por referência e os bytes das cópias são cobrados no orçamento de strings. Chamadas repetidas podem atingir essas quotas mais cedo do que antes, quando temporários não eram cobrados. WebAssembly conserva o limite separado de 32.
+
+O parser retoma grupos e seus tails iterativamente, sem ampliar pilha, fonte, tokens ou o guard nativo compartilhado de 64. Grupos não criam frames Rust nem nós AST e agora cobram um contador cumulativo separado, limitado a 16.384; as demais entradas conservam seu teto de 16.384. Isso altera a admissão para até 32.768 entradas combinadas, sem tratar o trabalho de grupos como gratuito. Arrows, precedência, associação e ASI são preservadas; cada composição alterada é validada antes da próxima, mantendo expressão estrutural até 64. Funções/statements/patterns ainda recursivos continuam sujeitos ao guard, sem reset por corpo. [Contrato e fixture](../releases/2026-11-09-bounded-call-lists-and-parser-groups.md).
+
+## Continuações de expressões e armazenamento de sequências
+
+O dispatcher Pratt mantém até 64 contextos lógicos ativos, incluindo raízes e continuações de parsers reentrantes; templates herdam o saldo. O limite nativo de 64 continua separado. Cada retorno lógico e composição alterada verifica a profundidade física, também limitada a 64. Cadeias locais continuam aceitando 63 links. O armazenamento retido das continuações tem limite conservador próprio, descrito na [nota Pratt](../releases/2026-11-09-bounded-pratt-continuations.md); ele não representa toda a AST ou a pilha do processo.
+
+Somente espinhas esquerdas de vírgula são achatadas, a partir de três operandos. O lado direito permanece uma expressão separada, mesmo que contenha outra sequência. Há no máximo 4096 operandos por sequência e um orçamento cumulativo derivado do layout, de 1.572.864 bytes em x64, que cobra capacidade dos vetores e cabeçalhos lógicos Arc antes da reserva; falhas e templates não devolvem consumo. Não é um teto de RSS ou de toda a AST. A altura imutável em cache evita revarrer um prefixo crescente a cada grupo.
+
+Avaliação preserva ordem, valor final, perda da referência pelo operador vírgula, eval indireto e suspensão. Os ticks e o trabalho lógico de validação dos nós removidos continuam cobrados; o cursor suspenso não clona sufixos. Outros operadores e caminhos à direita continuam estruturados e limitados. [Contrato e testes](../releases/2026-11-09-flat-comma-sequences.md); fixture local javascript-expression-storage.html. Nenhuma pilha de produção, autoridade de host, I/O ou sandbox é ampliada.
+
+## Visitas principais e agrupamentos com limites próprios
+
+O contador principal conserva 16.384 entradas não relacionadas a agrupamentos, incluindo statements, patterns, expressões e validações já cobradas. Agrupamentos usam outro contador agregado de 16.384, compartilhado por subparsers de templates e pelos dois inputs de Function. Ambos são cumulativos e não devolvem trabalho após falha. Isso admite até 32.768 operações heterogêneas combinadas; é uma mudança explícita de admissão, não uma alegação de custo total igual ou de AST ilimitada. As recusas distinguem `Parser visit budget exceeded` de `Parser group visit budget exceeded` e informam somente o contador correspondente.
+
+For clássico deixa de construir, descartar e reanalisar o prefixo do inicializador. O primeiro Pattern é reutilizado; o mesmo contexto Pratt retoma a precedência de expressão completa quando não reconhece in/of. A tentativa terminal e o limite da cadeia não são reiniciados. Trabalho efetivamente evitado não é cobrado, mas nenhum crédito de operações realizadas é devolvido. Yield, for-await, erros, conflitos lexicais e a gramática do subconjunto continuam preservados. [Escopo e testes](../releases/2026-11-09-parser-work-ledgers.md); fixtures javascript-parser-work.html e javascript-parser-work-function.html. A recusa de árvores fisicamente profundas permanece.
+
+## Visitas de agrupamento e inicializadores de for
+
+Os contadores de entradas e agrupamentos são compartilhados entre interpolações, inclusive separadas ou aninhadas, e entre parâmetros/corpo de Function. Sucesso, erro, mudança de input e recuo de índice não repõem consumo. Os limites do lexer são por lexagem, não um substituto para esses saldos agregados. Os diagnósticos `Parser visit budget exceeded` e `Parser group visit budget exceeded` identificam o contador que recusou a entrada e mostram somente contagens numéricas.
+
+O inicializador de for clássico reutiliza o primeiro Pattern de declaração ou o mesmo Context/AST Pratt ao transitar de precedência mínima 10 para 0. Não constrói novamente um prefixo descartado nem devolve trabalho já consumido. A tentativa terminal da cauda não é cobrada duas vezes e o teto de 63 links permanece. Não altera validação de conflitos lexicais nem cobranças de módulos. Fonte, tokens, AST física 64, profundidade nativa 64, contextos lógicos 64, armazenamento/largura de Sequence e quotas de execução permanecem independentes. Veja [contrato e medições sintéticas](../releases/2026-11-09-parser-work-ledgers.md) e fixtures/javascript-parser-work.html e javascript-parser-work-function.html.
+
+## Cadeias else-if com armazenamento plano
+
+Cadeias de pelo menos duas cláusulas imediatas usam um vetor imutável, sem recriar a cauda recursiva. Há no máximo 4.096 cláusulas e o mesmo orçamento cumulativo de 1.572.864 bytes em x64 agora cobre tanto Sequence quanto IfChain. Capacidade e cabeçalho Arc são cobrados antes da reserva; templates, erros e parâmetros/corpo de Function não repõem consumo. Combinações grandes podem ser recusadas, e cadeias pequenas não têm garantia de economia de memória.
+
+Somente as arestas diretas else-if ficam planas. Blocos, labels, corpos e condições mantêm escopos e limites residuais. Parser, hoisting, execução síncrona e continuations preservam a cobrança de cada if lógico na ordem original. O cursor suspenso mantém o dono e as raízes de escopo, sem clonar sufixos; Resource continua fatal. Fonte, lexer, visitas, profundidade física/nativa/lógica e quotas da VM permanecem limitados. [Contrato e testes](../releases/2026-11-09-flat-if-chains.md); fixture javascript-if-chains.html.
+
+## Caudas do ramo falso de ternários
+
+Duas ou mais expressões condicionais contíguas pelo ramo falso podem usar ConditionalChain, com cláusulas em armazenamento reverso e avaliação na ordem original. Não há fusão pelos ramos de condição ou verdadeiro, nem através de outros operadores. O dono imutável permite crescimento exclusivo durante o parse, sem copy-on-write, reanálise ou nova cobrança de visitas. A altura física em cache inclui todos os filhos e corpos retidos.
+
+O teto local é de 64 cláusulas, mas os contextos lógicos de Pratt continuam limitados a 64 e podem interromper fontes diretas antes. A capacidade e o cabeçalho Arc compartilham o mesmo saldo cumulativo de Sequence/IfChain, limitado a 1.572.864 bytes em x64, sem reposição após erro. A nova representação admite algumas composições antes recusadas por altura, mantendo o guard físico de 64 e os demais limites. Cadeias pelos outros ramos e árvores alternadas continuam estruturadas.
+
+Cada teste só é avaliado quando alcançado, com os ticks correspondentes; ramos descartados não executam efeitos. O resultado continua sendo valor, sem receiver de método ou eval direto. Execução suspensa usa cursor e preserva fases de erro, raízes de escopo e Resource fatal. Veja [contrato e testes](../releases/2026-11-09-flat-conditional-chains.md) e fixture javascript-conditional-chains.html.
+
+## Ancestrais internos dos cinco construtores Error
+
+Object.setPrototypeOf e Reflect.setPrototypeOf aceitam os cinco construtores Error existentes como ancestrais de objetos ordinários e funções elegíveis da VM. Error aponta internamente para Function.prototype, que aponta para Object.prototype; TypeError, RangeError, ReferenceError e SyntaxError apontam para Error. Isso não substitui a propriedade pública prototype das funções, não torna arrows construtíveis e não torna objetos comuns chamáveis.
+
+A caminhada interna cobre leitura, presença, atribuição, enumeração e herança ordinária, incluindo símbolos herdados de objetos VM e receivers explícitos de Reflect sobre alvos VM. Os dados próprios name/length/prototype dos cinco construtores são somente leitura; presença e enumeração não executam getters nem materializam protótipos públicos. Acesso direto a descritores próprios, integridade e mutação desses Native permanece recusado, assim como Reflect.get/has/set diretamente neles. A exceção pública estreita é getPrototypeOf. Não há novo armazenamento de propriedades nativas ou autoridade de host.
+
+Object.create(Error), uso de Error como propriedade pública F.prototype para construção e Symbol.hasInstance personalizado não fazem parte deste recorte. Também não corrige a limitação anterior de super quando uma propriedade de dados gravável no ancestral encontra um accessor próprio no receiver. Os limites existentes de caminhada, instruções e memória continuam aplicáveis. [Contrato e testes](../releases/2026-11-09-error-constructor-ancestors.md); fixture javascript-error-ancestors.html. O recorte passou por testes focais, integração DOM e fixtures Linux limitadas; isso não equivale a compatibilidade geral com sites.
+
+## Avaliador síncrono iterativo — em validação
+
+O dispatcher integrado utiliza referências à AST e um vetor limitado de fases, sem clonar subárvores nem encadear continuations por Box. Place e PreparedCall preservam referências, receiver e captura de callee antes de argumentos. Literais e listas avançam por cursor; os ticks de expressão e de nós virtuais das representações planas permanecem semânticos, separados do trabalho administrativo.
+
+A profundidade nativa de reentradas permanece limitada e é distinta dos frames explícitos. Slots/bytes vivos são agregados entre dispatchers; trabalho consumido não é restituído por rollback. GC/jobs permanecem vedados durante execução e aplicação de frames. Chamadas, statements, coerções, código dinâmico e scripts nested conservam guards próprios. Snapshots ativos não autorizam uma VM independente a executar, e rollback deve respeitar origem/contexto ainda válidos.
+
+Classes, padrões/defaults, invocação real, eval dinâmico, iteração e coerções continuam bridges síncronos explícitos, sujeitos aos mesmos limites. Async/generator mantêm sua representação suspensa existente. A sintaxe de atribuição lógica, computed keys em object literals e super com símbolo não é acrescentada neste bloco. [Contrato, bridges e validação planejada](../releases/2026-11-10-bounded-synchronous-evaluation.md); fixture javascript-iterative-evaluation.html. Os testes focais, 14 fixtures Linux em 1 MiB e a comparação independente passaram; o agregado final e a QA Windows permanecem pendentes.

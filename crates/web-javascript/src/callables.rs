@@ -170,20 +170,33 @@ impl Runtime {
         &mut self,
         method: &str,
         target: Value,
-        args: Vec<Value>,
+        mut args: Vec<Value>,
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
+        crate::call_storage::check_arguments(args.len())?;
         if !self.is_callable_value(&target, host) {
             return Err(self.property_type_error("Function adapter requires a callable receiver"));
         }
         let this = args.first().cloned().unwrap_or(Value::Undefined);
         match method {
-            "call" => self.call(target, args.into_iter().skip(1).collect(), this, host),
+            "call" => {
+                if !args.is_empty() {
+                    self.value_copy_work(args.len() - 1)?;
+                    args.remove(0);
+                }
+                self.call(target, args, this, host)
+            }
             "apply" => {
                 let arguments = self.apply_arguments(args.get(1), host)?;
                 self.call(target, arguments, this, host)
             }
-            "bind" => self.bind_function(target, this, args.into_iter().skip(1).collect(), host),
+            "bind" => {
+                if !args.is_empty() {
+                    self.value_copy_work(args.len() - 1)?;
+                    args.remove(0);
+                }
+                self.bind_function(target, this, args, host)
+            }
             _ => Err(JsError::runtime("Unknown function adapter")),
         }
     }
@@ -227,10 +240,10 @@ impl Runtime {
         } else {
             length.trunc()
         };
-        if length > 32. {
+        if length > crate::call_storage::MAX_CALL_ARGUMENTS as f64 {
             return Err(JsError::resource("Apply argument limit exceeded"));
         }
-        let mut arguments = Vec::with_capacity(length as usize);
+        let mut arguments = self.value_buffer(length as usize)?;
         for index in 0..length as usize {
             self.tick()?;
             arguments.push(self.get(value.clone(), &index.to_string(), host)?);
@@ -245,12 +258,34 @@ impl Runtime {
         arguments: Vec<Value>,
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
-        if arguments.len() > 32 {
+        if arguments.len() > crate::call_storage::MAX_CALL_ARGUMENTS {
             return Err(JsError::resource("Bound argument limit exceeded"));
         }
-        let length = match &target {
-            Value::Host(id) if !host.is_constructor(*id) => Value::Undefined,
-            _ => self.get(target.clone(), "length", host)?,
+        // BoundFunctionCreate captures [[Prototype]] before observable length
+        // and name reads. Later changes to the target do not affect the bound.
+        let internal_prototype = match &target {
+            Value::Function(id) => Some(self.function_internal_prototype(*id)?),
+            value if crate::reflection::intrinsic_ancestors::error_ancestor(value).is_some() => {
+                self.readonly_ancestor_parent(value)?
+            }
+            _ => None,
+        };
+        // Bound length depends only on an own length property. A deleted VM
+        // length must not read a native ancestor's length or invoke an inherited
+        // getter. The existing native metadata inventory is own, without
+        // granting native public descriptor access.
+        let own_length = match &target {
+            Value::Function(_) | Value::Native("Number" | "Symbol") => {
+                self.has_own_property(&target, "length")?
+            }
+            Value::Native(_) => true,
+            Value::Host(id) => host.is_constructor(*id),
+            _ => false,
+        };
+        let length = if own_length {
+            self.get(target.clone(), "length", host)?
+        } else {
+            Value::Undefined
         };
         let length = match length {
             Value::Number(number) if !number.is_nan() && number > 0. => {
@@ -271,7 +306,8 @@ impl Runtime {
             return Err(JsError::resource("Bound function name exceeds limit"));
         }
         let bound_name = self.string(format!("bound {name}"))?;
-        self.charge_array_slots(arguments.len())?;
+        // The argument builder already reserved this buffer. Arc adopts it
+        // without cloning its Value slots.
         self.charge_string("length".len() + "name".len())?;
         let id = self.allocate(Heap::Function(Function {
             params: Arc::new(Vec::new()),
@@ -286,6 +322,7 @@ impl Runtime {
             // This flag also suppresses an ordinary own prototype property.
             arrow: true,
             lexical_this: Value::Undefined,
+            internal_prototype,
             properties: BTreeMap::from([
                 ("length".into(), Value::Number(length)),
                 ("name".into(), bound_name),
@@ -319,14 +356,10 @@ impl Runtime {
         args: Vec<Value>,
     ) -> Result<Vec<Value>, JsError> {
         let length = bound.arguments.len().saturating_add(args.len());
-        if length > 32 {
+        if length > crate::call_storage::MAX_CALL_ARGUMENTS {
             return Err(JsError::resource("Bound call argument limit exceeded"));
         }
-        self.remaining = self
-            .remaining
-            .checked_sub(length as u64)
-            .ok_or_else(|| JsError::resource("Bound argument work budget exceeded"))?;
-        let mut combined = Vec::with_capacity(length);
+        let mut combined = self.value_buffer(length)?;
         combined.extend(bound.arguments.iter().cloned());
         combined.extend(args);
         Ok(combined)

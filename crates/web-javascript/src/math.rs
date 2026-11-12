@@ -478,7 +478,7 @@ mod tests {
 
 #[cfg(test)]
 mod random_tests {
-    use crate::{ErrorKind, Host, JsError, Limits, Runtime, Value};
+    use crate::{ErrorKind, Host, JsError, Runtime, Value};
     use std::collections::VecDeque;
 
     struct Entropy {
@@ -553,10 +553,10 @@ mod random_tests {
             Value::Number(0.5)
         );
         let mut host = entropy(&[0; 100]);
-        let mut runtime = Runtime::new(Limits {
-            instructions: 100,
-            ..Limits::default()
-        });
+        let mut runtime = Runtime::default();
+        // Bootstrap is now explicitly charged; isolate the loop's small budget.
+        runtime.execute("Math;", &mut host).unwrap();
+        runtime.remaining = 100;
         assert_eq!(
             runtime
                 .execute("while(true){Math.random();}", &mut host)

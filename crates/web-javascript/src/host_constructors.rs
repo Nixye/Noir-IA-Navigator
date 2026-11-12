@@ -216,11 +216,11 @@ fn host_construction_enforces_argument_depth_and_work_limits() {
     let mut host = Constructors::default();
     let mut vm = Runtime::default();
     assert!(
-        vm.construct(Value::Host(1), vec![Value::Null; 32], &mut host)
+        vm.construct(Value::Host(1), vec![Value::Null; 64], &mut host)
             .is_ok()
     );
     assert_eq!(
-        vm.construct(Value::Host(1), vec![Value::Null; 33], &mut host)
+        vm.construct(Value::Host(1), vec![Value::Null; 65], &mut host)
             .unwrap_err()
             .kind,
         ErrorKind::Resource
@@ -230,7 +230,7 @@ fn host_construction_enforces_argument_depth_and_work_limits() {
         .bind_function(
             Value::Host(1),
             Value::Undefined,
-            vec![Value::Null; 32],
+            vec![Value::Null; 64],
             &mut host,
         )
         .unwrap();
@@ -320,7 +320,7 @@ fn legacy_host_methods_keep_a_frame_until_all_callbacks_return() {
     );
     assert_eq!(vm.call_depth, 0);
     assert_eq!(
-        vm.method(Value::Host(1), "dispatch", vec![Value::Null; 33], &mut host)
+        vm.method(Value::Host(1), "dispatch", vec![Value::Null; 65], &mut host)
             .unwrap_err()
             .kind,
         ErrorKind::Resource

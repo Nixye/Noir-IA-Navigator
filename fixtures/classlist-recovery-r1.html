@@ -1,0 +1,46 @@
+<!doctype html>
+<title>Class list pending</title>
+<style>
+.menu { width: 40px; height: 24px; background: #654321; }
+.menu.open { width: 120px; background: #123456; }
+.tab { color: #222222; }
+.tab.active { color: #008844; }
+</style>
+<div id="menu" class="menu light">Menu</div>
+<p id="tab" class="tab">Settings</p>
+<button id="toggle" type="button">Toggle</button>
+<p id="status">pending</p>
+<script>
+var menu = document.getElementById('menu');
+var tokens = menu.classList;
+var tab = document.getElementById('tab');
+var status = document.getElementById('status');
+var conversions = 0;
+var jobs = 0;
+var frames = 0;
+var clicks = 0;
+tokens.add({toString: function () { conversions += 1; return 'open'; }}, 'ready');
+var replaced = tokens.replace('light', 'dark');
+tab.classList.toggle('active', true);
+var ready = tokens === menu.classList && replaced && tokens.contains('dark') &&
+  tokens.contains('open') && tokens.length === 4 && conversions === 1;
+status.textContent = ready ? 'ready' : 'failed';
+document.title = status.textContent;
+Promise.resolve().then(function () { jobs += 1; });
+requestAnimationFrame(function () {
+  frames += 1;
+  tokens.remove('open', 'ready');
+  tab.classList.toggle('active', false);
+  status.textContent = ready && conversions === 1 && jobs === 1 && frames === 1 &&
+    tokens.length === 2 && tokens.contains('dark') ? 'closed' : 'failed';
+  document.title = status.textContent;
+});
+document.getElementById('toggle').addEventListener('click', function () {
+  clicks += 1;
+  var open = tokens.toggle('open');
+  tab.classList.toggle('active', open);
+  status.textContent = frames === 1 && conversions === 1 && jobs === 1 && clicks === 1 && open
+    ? 'clicked' : 'failed';
+  document.title = status.textContent;
+});
+</script>

@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Concatenação limitada</title></head>
+<body><h1>Strings com reservas limitadas</h1><p id="result">Aguardando execução.</p><script>
+var padding = ' '.repeat(35000);
+var source = padding + padding + '40+2';
+var text = 'x'.repeat(40000).concat('y'.repeat(40000));
+var correct = source.length === 70004 && text.length === 80000 && text[79999] === 'y' && eval(source) === 42;
+document.getElementById('result').textContent = correct ? 'PASS: concatenação e eval limitados.' : 'Falha na concatenação limitada.';
+</script></body></html>

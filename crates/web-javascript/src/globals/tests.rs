@@ -1,4 +1,4 @@
-use crate::{ErrorKind, Host, JsError, Runtime, Value};
+use crate::{ErrorKind, Host, JsError, Limits, Runtime, Value};
 struct Window;
 impl Host for Window {
     fn global_object(&self) -> Option<u64> {
@@ -165,18 +165,46 @@ fn host_backed_properties_and_other_hosts_remain_refused_without_running_getters
 }
 #[test]
 fn descriptor_limits_remain_fatal_and_do_not_expand_host_authority() {
-    for source in [
-        "Object.defineProperty(window,'x'.repeat(1025),{value:1});",
-        "for(let i=0;i<129;i++){Object.defineProperty(window,'p'+i,{value:i});}",
-    ] {
-        assert_eq!(
-            Runtime::default()
-                .execute(source, &mut Window)
-                .unwrap_err()
-                .kind,
-            ErrorKind::Resource
-        );
+    assert_eq!(
+        Runtime::default()
+            .execute(
+                "Object.defineProperty(window,'x'.repeat(1025),{value:1});",
+                &mut Window
+            )
+            .unwrap_err()
+            .kind,
+        ErrorKind::Resource
+    );
+    let mut vm = Runtime::new(Limits {
+        instructions: 10_000_000,
+        ..Limits::default()
+    });
+    vm.capture_global_object(&Window).unwrap();
+    for i in 0..4096 {
+        vm.define_global_property(
+            &format!("p{i}"),
+            crate::descriptors::Definition {
+                value: Some(Value::Number(i as f64)),
+                ..crate::descriptors::Definition::default()
+            },
+            &mut Window,
+        )
+        .unwrap();
     }
+    assert_eq!(vm.global_stored("p4095"), Some(Value::Number(4095.)));
+    let error = vm
+        .define_global_property(
+            "overflow",
+            crate::descriptors::Definition {
+                value: Some(Value::Null),
+                ..crate::descriptors::Definition::default()
+            },
+            &mut Window,
+        )
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Resource);
+    assert_eq!(error.message, "Object property limit exceeded");
+    assert_eq!(vm.global_stored("overflow"), None);
 }
 
 #[test]

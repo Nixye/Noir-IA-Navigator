@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<title>Ancestrais de construtores Error</title>
+<body>
+<h1>Ancestrais de construtores Error</h1>
+<p id="result">Executando...</p>
+<script>
+function ChildError(message) {
+  var error = Error(message);
+  Object.setPrototypeOf(error, ChildError.prototype);
+  return error;
+}
+var original = ChildError.prototype;
+Object.setPrototypeOf(ChildError, Error);
+var ok = Object.getPrototypeOf(ChildError) === Error && ChildError.prototype === original;
+ChildError.prototype = Object.create(Error.prototype);
+Object.defineProperty(ChildError.prototype, 'constructor', {
+  value: ChildError, writable: true, configurable: true
+});
+var error = new ChildError('exemplo');
+ok = ok && error.message === 'exemplo' && error instanceof ChildError && error instanceof Error;
+ok = ok && ChildError instanceof Function && ChildError instanceof Object;
+ok = ok && Error.isPrototypeOf(ChildError) && Function.prototype.isPrototypeOf(ChildError);
+var families = [Error, TypeError, RangeError, ReferenceError, SyntaxError];
+for (var i = 0; i < families.length; i++) {
+  var constructor = families[i], object = {own: 1};
+  Object.setPrototypeOf(object, constructor);
+  ok = ok && object.name === constructor.name && object.length === 1;
+  ok = ok && object.prototype === constructor.prototype && ('prototype' in object);
+  ok = ok && typeof object.call === 'function' && ('hasOwnProperty' in object);
+  var parent = constructor === Error ? Function.prototype : Error;
+  ok = ok && Object.getPrototypeOf(constructor) === parent;
+  ok = ok && Reflect.getPrototypeOf(constructor) === parent;
+}
+var inherited = {own: 1};
+Object.setPrototypeOf(inherited, Error);
+var reads = 0, writes = 0, token = Symbol();
+Object.defineProperty(Object.prototype, 'name', {
+  get: function() { reads++; return 'incorreto'; },
+  enumerable: true, configurable: true
+});
+Object.defineProperty(Object.prototype, token, {
+  get: function() { reads++; return this.number; },
+  set: function(value) { writes++; this.saved = value; },
+  configurable: true
+});
+var names = '';
+for (var key in inherited) { names += key + ','; }
+ok = ok && names === 'own,' && reads === 0 && inherited.name === 'Error';
+ok = ok && Reflect.has(inherited, token) && reads === 0;
+var receiver = {number: 9};
+ok = ok && Reflect.get(inherited, token, receiver) === 9 && reads === 1;
+ok = ok && Reflect.set(inherited, token, 7, receiver) && receiver.saved === 7 && writes === 1;
+delete Object.prototype.name;
+delete Object.prototype[token];
+var BoundChild = ChildError.bind(null, 'bound');
+var BoundType = TypeError.bind(null, 'tipo');
+ok = ok && Object.getPrototypeOf(BoundChild) === Error && new BoundChild().message === 'bound';
+ok = ok && Object.getPrototypeOf(BoundType) === Error && new BoundType().name === 'TypeError';
+var arrow = () => 3;
+Object.setPrototypeOf(arrow, Error);
+var blocked = 0;
+try { new arrow(); } catch (e) { if (e.name === 'TypeError') blocked++; }
+try { Object.setPrototypeOf(Error, {}); } catch (e) { if (e.name === 'TypeError') blocked++; }
+try { Reflect.get(Error, 'name'); } catch (e) { if (e.name === 'TypeError') blocked++; }
+ok = ok && arrow() === 3 && blocked === 3;
+document.getElementById('result').textContent = ok ?
+  'PASS: heranca Error, receivers e limites.' : 'FAIL: heranca Error.';
+</script>
+</body>
+</html>

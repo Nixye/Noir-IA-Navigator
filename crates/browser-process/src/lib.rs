@@ -272,6 +272,7 @@ fn harden_worker() -> Result<(), String> {
 }
 
 fn validate_request(request: &RenderRequest) -> Result<(), String> {
+    browser_ipc::validate_view_context(request.viewport.view_context)?;
     browser_ipc::validate_session_storage_seed(&request.session_storage)?;
     browser_ipc::validate_audio_metadata(&request.document.audio_metadata)?;
     if !request.document.audio_metadata.is_empty()

@@ -185,6 +185,7 @@ impl Runtime {
         {
             return Err(self.property_type_error("RegExp lastIndex is not writable"));
         }
+        self.reserve_named_property(id, "lastIndex")?;
         if let Heap::Object(object) = &mut self.heap[id] {
             object
                 .properties
@@ -273,6 +274,9 @@ impl Runtime {
             .collect::<Result<Vec<_>, _>>()?;
         let id = self.allocate(Heap::Array(values))?;
         let input = self.string(text.into())?;
+        for key in ["index", "input", "groups"] {
+            self.reserve_named_property(id, key)?;
+        }
         self.array_properties.insert(
             id,
             BTreeMap::from([
@@ -285,6 +289,7 @@ impl Runtime {
             ]),
         );
         if let Some(indices) = indices {
+            self.reserve_named_property(id, "indices")?;
             self.array_properties
                 .get_mut(&id)
                 .expect("capture metadata")
@@ -324,6 +329,7 @@ impl Runtime {
             self.object(properties, None)?
         };
         let id = self.allocate(Heap::Array(values))?;
+        self.reserve_named_property(id, "groups")?;
         self.array_properties
             .insert(id, BTreeMap::from([("groups".into(), named)]));
         Ok(Some(Value::Array(id)))
@@ -489,15 +495,16 @@ impl Runtime {
         for found in matches {
             append(&mut result, &text[previous..found.start])?;
             let value = if callable {
-                let mut args = found
-                    .groups
-                    .iter()
-                    .map(|value| {
+                let length = found.groups.len() + 2 + usize::from(!found.names.is_empty());
+                crate::call_storage::check_arguments(length)?;
+                let mut args = self.value_buffer(length)?;
+                for value in &found.groups {
+                    args.push(
                         value
                             .as_ref()
-                            .map_or(Ok(Value::Undefined), |value| self.string(value.clone()))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+                            .map_or(Ok(Value::Undefined), |value| self.string(value.clone()))?,
+                    );
+                }
                 args.push(Value::Number(regexp::utf16_index(text, found.start) as f64));
                 args.push(self.string(text.into())?);
                 if !found.names.is_empty() {

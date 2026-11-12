@@ -69,6 +69,7 @@ fn desktop_local_and_sandboxed_sessions_can_start_concurrently() {
                             Viewport {
                                 width: 640.,
                                 height: 480.,
+                                view_context: None,
                             },
                             None,
                         )

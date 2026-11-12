@@ -24,7 +24,7 @@ pub struct RenderSession {
 
 impl RenderSession {
     pub fn new(document: &DocumentInput) -> Result<Self, String> {
-        Self::new_with_viewport(document, Viewport::default())
+        Self::new_with_viewport(document, Viewport::default().at_origin())
     }
 
     pub fn new_with_viewport(document: &DocumentInput, viewport: Viewport) -> Result<Self, String> {
@@ -58,6 +58,7 @@ impl RenderSession {
         seed: browser_ipc::SessionStorageSeed,
         services: Option<Arc<dyn PlatformServices>>,
     ) -> Result<Self, String> {
+        validate_geometry_viewport(viewport)?;
         browser_ipc::validate_session_storage_seed(&seed)?;
         browser_ipc::validate_audio_metadata(&document.audio_metadata)?;
         validate_images(document)?;
@@ -87,6 +88,9 @@ impl RenderSession {
             images: images.clone(),
             stylesheets: stylesheets.clone(),
         }));
+        session
+            .set_view_context(viewport.view_context)
+            .map_err(|e| e.to_string())?;
         let report = session.run_initial(&document.scripts);
         let warnings = report.warnings;
         Ok(Self {
@@ -126,7 +130,7 @@ impl RenderSession {
     }
 
     pub fn render(&mut self, viewport: Viewport) -> Result<RenderedPage, String> {
-        self.update_geometry(viewport);
+        self.update_geometry(viewport)?;
         // Remove detached content from this paint-only snapshot without renumbering
         // node IDs: native controls must continue targeting their retained DOM node.
         let dom = geometry::paint_document(&self.session.document)?;
@@ -173,7 +177,7 @@ impl RenderSession {
         event: &str,
         viewport: Viewport,
     ) -> Result<RenderedPage, String> {
-        self.update_geometry(viewport);
+        self.update_geometry(viewport)?;
         let node = usize::try_from(node).map_err(|_| "Invalid DOM event node")?;
         if event.len() > 64 {
             return Err("DOM event type exceeds limit".into());
@@ -199,7 +203,7 @@ impl RenderSession {
         elapsed_ms: u64,
         viewport: Viewport,
     ) -> Result<RenderedPage, String> {
-        self.update_geometry(viewport);
+        self.update_geometry(viewport)?;
         if let Err(error) = self.session.run_due_timers(elapsed_ms)
             && self.warnings.len() < 32
         {
@@ -216,6 +220,7 @@ impl RenderSession {
         timestamp_ms: f64,
         viewport: Viewport,
     ) -> Result<RenderedPage, String> {
+        self.update_geometry(viewport)?;
         browser_ipc::validate_animation_frame_timestamp(
             timestamp_ms,
             self.last_animation_frame_ms,
@@ -228,7 +233,6 @@ impl RenderSession {
             return Err("Invalid animation frame viewport".into());
         }
         self.last_animation_frame_ms = Some(timestamp_ms);
-        self.update_geometry(viewport);
         if let Err(error) = self.session.run_animation_frame(timestamp_ms)
             && self.warnings.len() < 32
         {
@@ -238,7 +242,16 @@ impl RenderSession {
         self.render(viewport)
     }
 
-    fn update_geometry(&mut self, viewport: Viewport) {
+    pub fn update_geometry(&mut self, viewport: Viewport) -> Result<(), String> {
+        // Clear view context before validation: an invalid update must not leave
+        // a previously known viewport origin usable by later script reads.
+        self.session
+            .set_view_context(None)
+            .map_err(|e| e.to_string())?;
+        validate_geometry_viewport(viewport)?;
+        self.session
+            .set_view_context(viewport.view_context)
+            .map_err(|e| e.to_string())?;
         if self.geometry_viewport.width != viewport.width
             || self.geometry_viewport.height != viewport.height
         {
@@ -250,7 +263,20 @@ impl RenderSession {
                 }));
             self.geometry_viewport = viewport;
         }
+        Ok(())
     }
+}
+
+fn validate_geometry_viewport(viewport: Viewport) -> Result<(), String> {
+    browser_ipc::validate_view_context(viewport.view_context)?;
+    if !viewport.width.is_finite()
+        || !viewport.height.is_finite()
+        || !(1. ..=16384.).contains(&viewport.width)
+        || !(1. ..=16384.).contains(&viewport.height)
+    {
+        return Err("Invalid geometry viewport".into());
+    }
+    Ok(())
 }
 
 fn micros(duration: std::time::Duration) -> u64 {
@@ -385,7 +411,8 @@ mod tests {
                     100.,
                     Viewport {
                         width: f32::NAN,
-                        height: 600.
+                        height: 600.,
+                        view_context: None
                     }
                 )
                 .is_err()
@@ -554,6 +581,7 @@ mod tests {
             .render(Viewport {
                 width: 900.,
                 height: 600.,
+                view_context: None,
             })
             .unwrap();
         assert_output_text(&session, &page, "before scripts");
@@ -567,10 +595,12 @@ mod tests {
         let narrow = Viewport {
             width: 320.,
             height: 300.,
+            view_context: None,
         };
         let wide = Viewport {
             width: 600.,
             height: 300.,
+            view_context: None,
         };
         let mut session = RenderSession::new_with_viewport(&document, narrow).unwrap();
         let page = session.render(narrow).unwrap();
@@ -671,7 +701,7 @@ mod tests {
     }
     #[test]
     fn real_document_wraps_links_and_respects_cascade() {
-        let page=render(&input("<title>Teste</title><style>body{margin:0;padding:8px} .card{width:140px;padding:12px;background:#123456} .hide{display:none}</style><body><div class=card><h2>Ação local</h2><a href='next.html'>Uma ligação com palavras para quebrar</a><span class=hide>secret</span></div></body>"),Viewport{width:320.0,height:200.0}).unwrap();
+        let page=render(&input("<title>Teste</title><style>body{margin:0;padding:8px} .card{width:140px;padding:12px;background:#123456} .hide{display:none}</style><body><div class=card><h2>Ação local</h2><a href='next.html'>Uma ligação com palavras para quebrar</a><span class=hide>secret</span></div></body>"),Viewport{width:320.0,height:200.0,view_context:None}).unwrap();
         assert_eq!(page.title, "Teste");
         assert!(!page.links.is_empty());
         assert!(page.items.iter().any(|item| matches!(
@@ -755,6 +785,7 @@ mod tests {
             Viewport {
                 width: 200.0,
                 height: 100.0,
+                view_context: None,
             },
         )
         .unwrap();
@@ -825,6 +856,7 @@ mod tests {
             .render(Viewport {
                 width: 600.,
                 height: 400.,
+                view_context: None,
             })
             .unwrap();
         let second = session
@@ -884,6 +916,7 @@ mod tests {
             .render(Viewport {
                 width: 640.,
                 height: 480.,
+                view_context: None,
             })
             .unwrap();
         assert_eq!(first.warnings, second.warnings);
@@ -893,3 +926,21 @@ mod tests {
         assert!(session.take_script_requests().is_empty());
     }
 }
+
+#[cfg(test)]
+mod classlist_recovery_r1_tests;
+
+#[cfg(test)]
+mod background_ownership_recovery_r2_tests;
+
+#[cfg(test)]
+mod live_collections_recovery_r3_tests;
+
+#[cfg(test)]
+mod nodelist_foreach_recovery_r4_tests;
+
+#[cfg(test)]
+mod bounding_panel_recovery_r5_tests;
+
+#[cfg(test)]
+mod geometry_context_recovery_r5_tests;

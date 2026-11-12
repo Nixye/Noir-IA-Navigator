@@ -223,7 +223,7 @@ fn remote_fixture() -> Snapshot {
                 source: "document.title=location.href;document.getElementById('status').textContent='UnexpectedStorage';try { window.sessionStorage.getItem('private'); } catch (error) { document.getElementById('status').textContent='Preserved'; }".into(),
             }],
         },
-        viewport: Viewport { width: 640., height: 480. },
+        viewport: Viewport { width: 640., height: 480., view_context: None },
     }
 }
 

@@ -26,7 +26,7 @@ fn array_constructor_diagnostic_preserves_limit_and_rejects_before_allocation() 
     assert!(matches!(result, Value::Array(_)));
     assert_eq!(vm.array_slots, 4096);
     let objects = vm.heap.len();
-    for length in [4097., 5868., 7823., f64::MAX] {
+    for length in [8193., 16_384., f64::MAX] {
         let error = vm.native("Array", &[Value::Number(length)]).unwrap_err();
         assert_eq!(error.kind, ErrorKind::Resource);
         assert_eq!(error.message, "Array item limit exceeded");
@@ -34,7 +34,7 @@ fn array_constructor_diagnostic_preserves_limit_and_rejects_before_allocation() 
         assert_eq!(
             error.diagnostic_contexts(),
             &[format!(
-                "array operation=construct requested-length={length:e} limit=4096"
+                "array operation=construct requested-length={length:e} limit=8192"
             )]
         );
         assert!(error.diagnostic_contexts()[0].len() <= 128);
@@ -44,9 +44,14 @@ fn array_constructor_diagnostic_preserves_limit_and_rejects_before_allocation() 
 }
 
 #[test]
-fn entropy_dependent_array_request_reproduces_both_outcomes_without_retry() {
+fn entropy_dependent_array_request_fits_within_the_new_bounded_storage() {
     let source = "Array(Math.random()*7824|0).length;";
-    for (bits, length) in [(0, 0.), (1u64 << 63, 3912.)] {
+    for (bits, length) in [
+        (0, 0.),
+        (1u64 << 63, 3912.),
+        (3u64 << 62, 5868.),
+        (u64::MAX, 7823.),
+    ] {
         assert_eq!(
             Runtime::default()
                 .execute(source, &mut FixedEntropy(bits))
@@ -54,9 +59,9 @@ fn entropy_dependent_array_request_reproduces_both_outcomes_without_retry() {
             Value::Number(length)
         );
     }
-    for (bits, length) in [(3u64 << 62, 5868.), (u64::MAX, 7823.)] {
+    for (bits, length) in [(3u64 << 62, 12288.), (u64::MAX, 16383.)] {
         let error = Runtime::default()
-            .execute(source, &mut FixedEntropy(bits))
+            .execute("Array(Math.random()*16384|0);", &mut FixedEntropy(bits))
             .unwrap_err();
         assert_eq!(error.kind, ErrorKind::Resource);
         assert!(
@@ -72,13 +77,14 @@ fn array_resource_error_stays_uncatchable_and_aggregate_budget_remains() {
     let mut vm = Runtime::default();
     let error = vm
         .execute(
-            "var escaped=false;try{Array(4097);}catch(e){escaped=true;}escaped=true;",
+            "var escaped=false;try{Array(8193);}catch(e){escaped=true;}escaped=true;",
             &mut FixedEntropy(0),
         )
         .unwrap_err();
     assert_eq!(error.kind, ErrorKind::Resource);
     assert_eq!(vm.global_value("escaped"), Some(Value::Bool(false)));
-    assert_eq!(vm.array_slots, 0);
+    // The call argument was reserved; the rejected Array itself allocated none.
+    assert_eq!(vm.array_slots, 1);
     let mut vm = Runtime::new(Limits {
         instructions: 1_000_000,
         ..Limits::default()

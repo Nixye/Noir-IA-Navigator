@@ -320,6 +320,7 @@ fn decode(reader: &mut impl Read, file_size: Option<u64>) -> io::Result<Snapshot
     let viewport = Viewport {
         width: input.float()?,
         height: input.float()?,
+        view_context: Some(browser_ipc::ViewContext::Origin),
     };
     let url = input.text(MAX_URL_BYTES)?;
     let html = input.text(browser_ipc::MAX_HTML_BYTES)?;
@@ -442,6 +443,7 @@ mod tests {
             viewport: Viewport {
                 width: 743.125,
                 height: 481.5,
+                view_context: Some(browser_ipc::ViewContext::Origin),
             },
         }
     }

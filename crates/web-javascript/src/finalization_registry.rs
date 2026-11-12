@@ -279,12 +279,7 @@ impl Runtime {
         host: &mut impl Host,
         microtask_work: &mut usize,
     ) -> Result<(), JsError> {
-        if self.finalization_registries.draining
-            || self.promise_jobs_are_draining()
-            || self.call_depth != 0
-            || self.eval_depth != 0
-            || self.dynamic_depth != 0
-        {
+        if self.execution_is_active() {
             return Ok(());
         }
         self.finalization_registries.draining = true;
@@ -333,7 +328,7 @@ impl Runtime {
                     }
                 }
                 if did_work {
-                    self.drain_promise_jobs_with_budget(host, microtask_work)?;
+                    self.drain_promise_jobs_after_finalizer(host, microtask_work)?;
                 }
             }
             Ok(())

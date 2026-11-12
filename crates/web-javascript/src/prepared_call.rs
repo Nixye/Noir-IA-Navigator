@@ -14,36 +14,77 @@ pub(super) enum PreparedCall {
     },
 }
 impl PreparedCall {
-    pub(super) fn trace_values(&self, values: &mut Vec<Value>) {
+    pub(super) fn trace_values(&self, values: &mut impl Extend<Value>) {
         match self {
             Self::Callable {
                 callable, receiver, ..
             } => {
-                values.push(callable.clone());
-                values.push(receiver.clone());
+                values.extend([callable.clone()]);
+                values.extend([receiver.clone()]);
             }
-            Self::LegacyMethod { receiver, .. } => values.push(receiver.clone()),
+            Self::LegacyMethod { receiver, .. } => values.extend([receiver.clone()]),
         }
     }
 }
 impl Place {
-    pub(super) fn trace_values(&self, values: &mut Vec<Value>, scopes: &mut Vec<usize>) {
+    pub(super) fn trace_values(&self, values: &mut impl Extend<Value>, scopes: &mut Vec<usize>) {
         match self {
             Self::Binding(scope, _) => scopes.push(*scope),
-            Self::Global(id, _) => values.push(Value::Host(*id)),
-            Self::Member(object, _) | Self::SymbolMember(object, _) => values.push(object.clone()),
+            Self::Global(id, _) => values.extend([Value::Host(*id)]),
+            Self::Member(object, _) | Self::SymbolMember(object, _) => {
+                values.extend([object.clone()])
+            }
             Self::PrivateMember(object, class, _) => {
-                values.push(object.clone());
-                values.push(Value::Function(*class));
+                values.extend([object.clone()]);
+                values.extend([Value::Function(*class)]);
             }
             Self::SuperMember(base, receiver, _) => {
-                values.push(base.clone());
-                values.push(receiver.clone());
+                values.extend([base.clone()]);
+                values.extend([receiver.clone()]);
             }
         }
     }
 }
 impl Runtime {
+    /// Frame-owned metadata is charged before allocation. Moving its owner to
+    /// another continuation is free; teardown/rollback never refunds the bytes.
+    pub(crate) fn sync_owned_metadata(&mut self, text: &str) -> Result<String, JsError> {
+        self.charge_string(text.len())?;
+        let mut owned = String::new();
+        owned
+            .try_reserve_exact(text.len())
+            .map_err(|_| JsError::resource("Synchronous metadata storage unavailable"))?;
+        if owned.capacity() > text.len() {
+            self.charge_string(owned.capacity() - text.len())?;
+        }
+        owned.push_str(text);
+        Ok(owned)
+    }
+    pub(crate) fn sync_property_metadata(&mut self, key: &Value) -> Result<String, JsError> {
+        // coerce_property_key returns String or Symbol. Preserve the one text()
+        // tick on the String path without creating an uncharged intermediate.
+        let Value::String(text) = key else {
+            return Err(JsError::runtime("Expected coerced string property key"));
+        };
+        self.tick()?;
+        self.sync_owned_metadata(text)
+    }
+    pub(super) fn prepare_value_call(
+        &mut self,
+        callable: Value,
+        callee: &Expr,
+    ) -> Result<PreparedCall, JsError> {
+        let context = if let Expr::Name(name) = callee {
+            Some(self.sync_owned_metadata(name)?)
+        } else {
+            None
+        };
+        Ok(PreparedCall::Callable {
+            callable,
+            receiver: Value::Undefined,
+            context,
+        })
+    }
     pub(super) fn ordinary_member_place_values(
         &mut self,
         base: Value,
@@ -54,7 +95,7 @@ impl Runtime {
         if let Value::Symbol(key, _) = key {
             Ok(Place::SymbolMember(base, key))
         } else {
-            Ok(Place::Member(base, self.text(&key, 0)?))
+            Ok(Place::Member(base, self.sync_property_metadata(&key)?))
         }
     }
     pub(super) fn update_place(
@@ -124,7 +165,7 @@ impl Runtime {
                 context: None,
             });
         }
-        let property = self.text(&key, 0)?;
+        let property = self.sync_property_metadata(&key)?;
         if matches!(
             object,
             Value::Object(_)
@@ -149,30 +190,6 @@ impl Runtime {
             Ok(PreparedCall::LegacyMethod {
                 receiver: object,
                 property,
-            })
-        }
-    }
-    pub(super) fn prepare_call(
-        &mut self,
-        callee: &Expr,
-        scope: usize,
-        host: &mut impl Host,
-    ) -> Result<PreparedCall, JsError> {
-        if let Expr::Member(object, property) = callee {
-            let object = self.eval(object, scope, host)?;
-            let key = self.eval(property, scope, host)?;
-            self.prepare_member_call_values(object, key, host)
-        } else {
-            let callable = self.eval(callee, scope, host)?;
-            let context = if let Expr::Name(name) = callee {
-                Some(name.clone())
-            } else {
-                None
-            };
-            Ok(PreparedCall::Callable {
-                callable,
-                receiver: Value::Undefined,
-                context,
             })
         }
     }
@@ -400,9 +417,9 @@ mod tests {
         }
     }
     #[test]
-    fn argument_33_is_never_evaluated_and_limit_errors_are_fatal() {
+    fn argument_65_is_never_evaluated_and_limit_errors_are_fatal() {
         let mut vm = Runtime::default();
-        let args = std::iter::repeat_n("effects++", 32)
+        let args = std::iter::repeat_n("effects++", 64)
             .collect::<Vec<_>>()
             .join(",");
         let source = format!(
@@ -412,7 +429,7 @@ mod tests {
             vm.execute(&source, &mut Empty).unwrap_err().kind,
             crate::ErrorKind::Resource
         );
-        let args = std::iter::repeat_n("effects++", 31)
+        let args = std::iter::repeat_n("effects++", 63)
             .collect::<Vec<_>>()
             .join(",");
         vm.execute(&format!(
@@ -439,7 +456,7 @@ mod tests {
         );
         assert_eq!(
             vm.execute("effects;", &mut Empty).unwrap(),
-            Value::Number(32.)
+            Value::Number(64.)
         );
         assert_eq!(
             vm.execute("cleaned;", &mut Empty).unwrap(),

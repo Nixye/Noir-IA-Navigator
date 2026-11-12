@@ -15,6 +15,9 @@ mod global_descriptor_tests;
 #[cfg(test)]
 mod promise_host_tests;
 pub use animation::MAX_ANIMATION_FRAME_TIMESTAMP_MS;
+mod class_list;
+#[cfg(test)]
+mod class_list_tests;
 mod collections;
 mod diagnostics;
 mod dynamic_scripts;
@@ -29,7 +32,9 @@ mod selector_query_tests;
 mod storage;
 #[cfg(test)]
 mod wasm_i64_tests;
-pub use geometry::{GeometryResolver, GeometrySnapshot, NodeGeometry};
+pub use geometry::{
+    BoundingGeometry, GeometryResolver, GeometrySnapshot, NodeGeometry, UnsupportedGeometry,
+};
 use lifecycle::ReadyState;
 
 const DOC: u64 = 1;
@@ -84,7 +89,9 @@ const EVENT_METHODS: [&str; 3] = [
 const EVENT_BASE: u64 = 5_000_000;
 const MAX_EVENTS: usize = 256;
 const CLASS_METHOD: u64 = 120_000;
-const CLASS_METHODS: [&str; 4] = ["contains", "add", "remove", "toggle"];
+const CLASS_METHODS: [&str; 7] = [
+    "contains", "add", "remove", "toggle", "replace", "item", "toString",
+];
 const CONSOLE_METHOD: u64 = 120_010;
 const CONSOLE_METHODS: [&str; 5] = ["log", "info", "warn", "error", "debug"];
 const NODE: u64 = 100;
@@ -1684,6 +1691,13 @@ fn event_handler_kind(property: &str) -> Option<&str> {
     })
 }
 impl Host for DomHost<'_> {
+    fn stringifier(&mut self, object: u64) -> Result<Option<String>, JsError> {
+        if (CLASS..LIST).contains(&object) {
+            return self.class_stringifier(object).map(Some);
+        }
+        Ok(None)
+    }
+
     fn script_evaluation_finished(&mut self) {
         self.state.dynamic_scripts.current = None;
     }
@@ -1694,7 +1708,18 @@ impl Host for DomHost<'_> {
         value: Value,
         runtime: &mut Runtime,
     ) -> Result<(), JsError> {
-        self.set(object, property, value)?;
+        if (CLASS..LIST).contains(&object) {
+            self.class_node(object)?;
+            if property != "value" {
+                return Err(JsError::runtime(
+                    "DOMTokenList property is read-only or unsupported",
+                ));
+            }
+            let text = runtime.coerce_to_string(value, self)?;
+            self.class_set_value(object, text)?;
+        } else {
+            self.set(object, property, value)?;
+        }
         self.run_inline_scripts(runtime)
     }
     fn random_u64(&mut self) -> Result<u64, JsError> {
@@ -1762,7 +1787,8 @@ impl Host for DomHost<'_> {
             )
     }
     fn is_callable(&self, object: u64) -> bool {
-        collections::is_method(object)
+        object == geometry::BOUNDING_METHOD
+            || collections::is_method(object)
             || (DOCUMENT_METHOD..DOCUMENT_METHOD + DOCUMENT_METHODS.len() as u64).contains(&object)
             || (NODE_METHOD..NODE_METHOD + NODE_METHODS.len() as u64).contains(&object)
             || (NAVIGATOR_METHOD..NAVIGATOR_METHOD + NAVIGATOR_METHODS.len() as u64)
@@ -1977,15 +2003,19 @@ impl Host for DomHost<'_> {
                 .lists
                 .get((object - LIST) as usize)
                 .ok_or_else(|| JsError::runtime("Invalid NodeList"))?;
-            return Ok(property == "length"
-                || property
-                    .parse::<usize>()
-                    .ok()
-                    .is_some_and(|index| index.to_string() == property && index < values.len()));
+            return Ok(matches!(property, "length" | "item" | "forEach")
+                || collections::property_index(property)
+                    .is_some_and(|index| index < values.len()));
         }
         if (CLASS..LIST).contains(&object) {
-            self.node(NODE + object - CLASS)?;
-            return Ok(matches!(property, "contains" | "add" | "remove" | "toggle"));
+            self.class_node(object)?;
+            if matches!(property, "length" | "value") || CLASS_METHODS.contains(&property) {
+                return Ok(true);
+            }
+            return match class_list::property_index(property) {
+                Some(index) => Ok(index < self.class_tokens(object)?.len()),
+                None => Ok(false),
+            };
         }
         if (STYLE..CLASS).contains(&object) {
             self.node(NODE + object - STYLE)?;
@@ -2247,15 +2277,7 @@ impl Host for DomHost<'_> {
                 return self.related_node(0, property);
             }
             if property == "children" || property == "childNodes" {
-                let nodes = self.document.nodes[0]
-                    .children
-                    .iter()
-                    .copied()
-                    .filter(|&child| {
-                        property == "childNodes" || self.document.element(child).is_some()
-                    })
-                    .collect();
-                return self.list(nodes);
+                return self.child_collection(0, property == "children");
             }
             return match property {
                 // Promise resolution probes this absent property. Keep other
@@ -2317,20 +2339,18 @@ impl Host for DomHost<'_> {
                 .ok_or_else(|| JsError::runtime("Invalid NodeList"))?;
             return if property == "length" {
                 Ok(Value::Number(values.len() as f64))
+            } else if property == "item" {
+                Ok(Value::Host(collections::NODE_ITEM))
+            } else if property == "forEach" {
+                Ok(Value::Native("Array.forEach"))
             } else {
-                Ok(property
-                    .parse::<usize>()
-                    .ok()
+                Ok(collections::property_index(property)
                     .and_then(|i| values.get(i))
                     .map_or(Value::Undefined, |&id| Value::Host(NODE + id as u64)))
             };
         }
         if object >= CLASS {
-            self.node(NODE + object - CLASS)?;
-            if let Some(index) = CLASS_METHODS.iter().position(|method| *method == property) {
-                return Ok(Value::Host(CLASS_METHOD + index as u64));
-            }
-            return Err(JsError::runtime("Read classList with contains()"));
+            return self.class_get(object, property);
         }
         if object >= STYLE {
             let id = self.node(NODE + object - STYLE)?;
@@ -2473,16 +2493,7 @@ impl Host for DomHost<'_> {
                 .parent
                 .filter(|&parent| self.document.element(parent).is_some())
                 .map_or(Value::Null, |parent| Value::Host(NODE + parent as u64))),
-            "children" | "childNodes" => self.list(
-                self.document.nodes[id]
-                    .children
-                    .iter()
-                    .filter(|&&child| {
-                        property == "childNodes" || self.document.element(child).is_some()
-                    })
-                    .copied()
-                    .collect(),
-            ),
+            "children" | "childNodes" => self.child_collection(id, property == "children"),
             "disabled" | "checked" => Ok(Value::Bool(
                 self.document
                     .element(id)
@@ -2497,6 +2508,15 @@ impl Host for DomHost<'_> {
         }
     }
     fn set(&mut self, object: u64, property: &str, value: Value) -> Result<(), JsError> {
+        if (CLASS..LIST).contains(&object) {
+            self.class_node(object)?;
+            if property != "value" {
+                return Err(JsError::runtime(
+                    "DOMTokenList property is read-only or unsupported",
+                ));
+            }
+            return self.class_set_value(object, value.primitive_text()?);
+        }
         if collections::is_collection(object) {
             return Err(JsError::runtime(
                 "HTMLCollection writes and expandos are not implemented",
@@ -2709,6 +2729,47 @@ impl Host for DomHost<'_> {
         this: &Value,
         runtime: &mut Runtime,
     ) -> Result<Value, JsError> {
+        if object == geometry::BOUNDING_METHOD || method == "getBoundingClientRect" {
+            return self.bounding_call(object, method, this, runtime);
+        }
+        if (CLASS..LIST).contains(&object)
+            || (CLASS_METHOD..CLASS_METHOD + CLASS_METHODS.len() as u64).contains(&object)
+        {
+            let result = self.class_call_runtime(object, method, args, this, runtime);
+            // Never continue callbacks after a resource failure: retain the
+            // session's resource rollback and disable semantics.
+            if result
+                .as_ref()
+                .is_err_and(|e| e.kind == ErrorKind::Resource)
+            {
+                return result;
+            }
+            // Conversion hooks may have inserted scripts even when validation fails.
+            self.run_inline_scripts(runtime)?;
+            return result;
+        }
+        // Direct Host member calls use the legacy method bridge rather than
+        // invoking the value returned by get(). Forward only real NodeLists;
+        // HTMLCollections still have no own forEach method.
+        if matches!(method, "item" | "forEach") && self.is_nodelist_receiver(object) {
+            if method == "item" {
+                return self.collection_call(
+                    collections::NODE_ITEM,
+                    "call",
+                    args,
+                    &Value::Host(object),
+                    runtime,
+                );
+            }
+            // The outer VM Host frame remains active throughout this call, so
+            // the shared intrinsic cannot introduce callback job checkpoints.
+            return runtime.invoke_with_this(
+                Value::Native("Array.forEach"),
+                args.to_vec(),
+                Value::Host(object),
+                self,
+            );
+        }
         if collections::is_method(object) || collections::is_collection(object) {
             return self.collection_call(object, method, args, this, runtime);
         }
@@ -3262,42 +3323,7 @@ impl Host for DomHost<'_> {
             };
         }
         if (CLASS..LIST).contains(&object) {
-            let id = self.node(NODE + object - CLASS)?;
-            let current = self
-                .document
-                .element(id)
-                .and_then(|e| e.attr("class"))
-                .unwrap_or("");
-            let mut classes = current
-                .split_ascii_whitespace()
-                .map(str::to_string)
-                .collect::<Vec<_>>();
-            let name = text(0)?;
-            if name.is_empty() || name.chars().any(char::is_whitespace) {
-                return Err(JsError::runtime("classList requires a single token"));
-            }
-            let contains = classes.contains(&name);
-            match method {
-                "contains" => return Ok(Value::Bool(contains)),
-                "add" => {
-                    if !contains {
-                        classes.push(name);
-                    }
-                }
-                "remove" => classes.retain(|class| class != &name),
-                "toggle" => {
-                    let enable = args.get(1).map_or(!contains, Value::truthy);
-                    classes.retain(|class| class != &name);
-                    if enable {
-                        classes.push(name);
-                    }
-                    self.set_attribute(id, "class".into(), classes.join(" "))?;
-                    return Ok(Value::Bool(enable));
-                }
-                _ => return Err(JsError::runtime("Unsupported classList method")),
-            }
-            self.set_attribute(id, "class".into(), classes.join(" "))?;
-            return Ok(Value::Undefined);
+            return self.class_call_primitive(object, method, args);
         }
         let id = self.node(object)?;
         match method {

@@ -288,9 +288,10 @@ mod tests {
         let mut vm = Runtime::default();
         let target = vm.object(BTreeMap::new(), None).unwrap();
         let weak = make_ref(&mut vm, target.clone());
-        for frame in 0..3 {
+        for frame in 0..4 {
             vm.call_depth = usize::from(frame == 0);
             vm.eval_depth = usize::from(frame == 1);
+            vm.sync_execution.active = usize::from(frame == 3);
             vm.dynamic_depth = usize::from(frame == 2);
             vm.collect_garbage(std::slice::from_ref(&weak), &Empty)
                 .unwrap();
@@ -298,6 +299,7 @@ mod tests {
         }
         vm.call_depth = 0;
         vm.eval_depth = 0;
+        vm.sync_execution.active = 0;
         vm.dynamic_depth = 0;
         vm.collect_garbage(std::slice::from_ref(&weak), &Empty)
             .unwrap();

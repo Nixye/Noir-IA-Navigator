@@ -1,6 +1,12 @@
 //! Object prototypes, native-function metadata and primitive wrappers.
 use crate::{Heap, Host, JsError, Runtime, Value, descriptors::PropertyMetadata};
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(test)]
+mod error_ancestor_tests;
+pub(super) mod intrinsic_ancestors;
+#[cfg(test)]
+#[path = "reflection/prototype_tests.rs"]
+mod prototype_tests;
 #[derive(Clone, Debug, Default)]
 pub(super) struct ReflectionState {
     pub symbol_constructor: Option<usize>,
@@ -35,6 +41,16 @@ pub(super) fn property(name: &str, property: &str) -> Option<Value> {
     }))
 }
 impl Runtime {
+    pub(super) fn function_internal_prototype(&self, id: usize) -> Result<Value, JsError> {
+        let Some(Heap::Function(function)) = self.heap.get(id) else {
+            return Err(JsError::runtime("Invalid function prototype owner"));
+        };
+        Ok(function
+            .internal_prototype
+            .clone()
+            .or_else(|| self.class_static_parent(id))
+            .unwrap_or(Value::Native("Function.prototype")))
+    }
     pub(super) fn object_prototype_value(&mut self) -> Result<Value, JsError> {
         self.reflection_prototype("Object")
     }
@@ -318,7 +334,8 @@ impl Runtime {
             if !matches!(primitive, Value::String(_) | Value::Utf16(_)) {
                 return Err(self.property_type_error("String wrapper receiver required"));
             }
-            return self.call(method, args.to_vec(), primitive, host).map(Some);
+            let arguments = self.copy_argument_values(args)?;
+            return self.call(method, arguments, primitive, host).map(Some);
         }
         let first = args.first().cloned().unwrap_or(Value::Undefined);
         let result = match name {
@@ -328,7 +345,37 @@ impl Runtime {
                 self.box_value(primitive)?
             }
             "Object.setPrototypeOf" => {
-                return Err(self.property_type_error("Object.setPrototypeOf is not implemented"));
+                if matches!(first, Value::Null | Value::Undefined) {
+                    return Err(
+                        self.property_type_error("Cannot set prototype of null or undefined")
+                    );
+                }
+                let prototype = args.get(1).cloned().unwrap_or(Value::Undefined);
+                if !matches!(
+                    prototype,
+                    Value::Null
+                        | Value::Object(_)
+                        | Value::Array(_)
+                        | Value::Function(_)
+                        | Value::Host(_)
+                        | Value::Native(_)
+                ) {
+                    return Err(self.property_type_error("Prototype must be an object or null"));
+                }
+                // Object.setPrototypeOf returns non-nullish primitives unchanged;
+                // unlike Reflect, it does not box them or mutate a wrapper.
+                if matches!(
+                    first,
+                    Value::Object(_)
+                        | Value::Array(_)
+                        | Value::Function(_)
+                        | Value::Host(_)
+                        | Value::Native(_)
+                ) && !self.reflect_set_prototype(&first, prototype)?
+                {
+                    return Err(self.property_type_error("Cannot change object prototype"));
+                }
+                first
             }
             "Number.toFixed" => {
                 let primitive = if let Value::Object(id) = &this {
@@ -386,8 +433,13 @@ impl Runtime {
                 for depth in 0..64 {
                     self.tick()?;
                     current = match current {
+                        ref value
+                            if intrinsic_ancestors::readonly_ancestor_names(value).is_some() =>
+                        {
+                            self.readonly_ancestor_parent(value)?.unwrap()
+                        }
                         Value::Native("Symbol" | "Number") => Value::Native("Function.prototype"),
-                        Value::Native("Function.prototype") => self.object_prototype_value()?,
+                        Value::Function(id) => self.function_internal_prototype(id)?,
                         Value::Object(id) => match self.heap.get(id) {
                             Some(Heap::Object(object)) => {
                                 object.prototype.clone().unwrap_or(Value::Null)
@@ -401,9 +453,9 @@ impl Runtime {
                                 self.array_prototype_value()?
                             }
                         }
-                        Value::Host(_) | Value::Native(_) | Value::Function(_) => {
+                        Value::Host(_) | Value::Native(_) => {
                             return Err(self.property_type_error(
-                                "Prototype traversal for Host/native/functions is not implemented",
+                                "Prototype traversal for these Host/native objects is not implemented",
                             ));
                         }
                         _ => Value::Null,

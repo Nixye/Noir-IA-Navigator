@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Expressões com armazenamento limitado</title></head>
+<body><h1>Parser iterativo e sequências planas</h1><p id="result">Aguardando execução.</p><script>
+function identity(value){return value;}
+function outer(){return function inner(){return identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((identity((7))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))));};}
+var marks=0;
+function mark(value){marks+=1;return value;}
+function sequence(){return (mark(0)),mark(1),mark(2),mark(3),mark(4),mark(5),mark(6),mark(7),mark(8),mark(9),mark(10),mark(11),mark(12),mark(13),mark(14),mark(15),mark(16),mark(17),mark(18),mark(19),mark(20),mark(21),mark(22),mark(23),mark(24),mark(25),mark(26),mark(27),mark(28),mark(29),mark(30),mark(31),mark(32),mark(33),mark(34),mark(35),mark(36),mark(37),mark(38),mark(39),mark(40),mark(41),mark(42),mark(43),mark(44),mark(45),mark(46),mark(47),mark(48),mark(49),mark(50),mark(51),mark(52),mark(53),mark(54),mark(55),mark(56),mark(57),mark(58),mark(59),mark(60),mark(61),mark(62),mark(63);}
+var object={method:function(){'use strict';return this===undefined;}};
+var detached=(0,0,object.method)();
+function indirect(){var privateSequenceLocal=7;return (0,0,eval)('typeof privateSequenceLocal');}
+function* suspended(){return (1,yield 2,3);}
+var generator=suspended();
+var first=generator.next();
+var last=generator.next(9);
+var deepResult=outer()();
+var passed=deepResult===7&&sequence()===63&&marks===64&&detached&&indirect()==='undefined'&&first.value===2&&!first.done&&last.value===3&&last.done;
+document.getElementById('result').textContent=passed?'PASS: parser iterativo e sequencias planas.':'Falha em parser ou sequencias.';
+</script></body></html>

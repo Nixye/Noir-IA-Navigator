@@ -14,7 +14,7 @@ pub(super) enum AsyncIteratorRecord {
     FromSync(IteratorRecord),
 }
 impl AsyncIteratorRecord {
-    pub(super) fn trace_values(&self, values: &mut Vec<Value>) {
+    pub(super) fn trace_values(&self, values: &mut impl Extend<Value>) {
         match self {
             Self::Direct { object, next } => values.extend([object.clone(), next.clone()]),
             Self::FromSync(iterator) => iterator.trace_values(values),

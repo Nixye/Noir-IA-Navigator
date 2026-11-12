@@ -4,18 +4,45 @@ use crate::{ErrorKind, Flow, Host, JsError, Runtime, Stmt, Value, parser};
 const MAX_NESTED_SCRIPTS: usize = 8;
 
 impl Runtime {
-    /// Callbacks entered from a setter still have an expression on the stack,
-    /// even when no ordinary JS function or host method is currently active.
+    /// A barrier, not an admission counter. In particular, a popped expression
+    /// frame may still hold Values while calling a setter or coercion bridge.
+    pub(crate) fn execution_is_active(&self) -> bool {
+        self.page_execution_is_active()
+            || self.promise_jobs_are_draining()
+            || self.finalization_registries.draining
+    }
+
+    /// Page activations are distinct from the job-loop markers. The one
+    /// internal microtask checkpoint after a finalizer may run while its outer
+    /// finalization loop remains marked, but never while page Values are live.
+    pub(crate) fn page_execution_is_active(&self) -> bool {
+        self.sync_execution.active != 0
+            || self.sync_execution.host_callbacks != 0
+            || self.sync_execution.snapshot_only
+            || self.eval_depth != 0
+            || self.call_depth != 0
+            || self.statement_depth != 0
+            || self.conversion_depth != 0
+            || self.dynamic_depth != 0
+            || self.nested_script_depth != 0
+            || self.resumable_execution_active()
+    }
+
+    pub(crate) fn ensure_executable(&self) -> Result<(), JsError> {
+        if self.sync_execution.snapshot_only {
+            Err(JsError::resource("Runtime snapshot is not executable"))
+        } else {
+            Ok(())
+        }
+    }
+
     pub(super) fn execution_job_boundary(&self) -> bool {
-        self.call_depth == 0
-            && self.eval_depth == 0
-            && self.dynamic_depth == 0
-            && self.nested_script_depth == 0
-            && !self.resumable_execution_active()
+        !self.execution_is_active()
     }
 
     /// Parsing completes before any script effect. Errors never skip syntax.
     pub fn execute(&mut self, source: &str, host: &mut impl Host) -> Result<Value, JsError> {
+        self.ensure_executable()?;
         let input_offset = self.execution_job_boundary();
         let statements = self
             .collect_garbage(&[], host)
@@ -26,6 +53,7 @@ impl Runtime {
         // Preserve the outer entry's checkpoint behavior: failed preparation
         // never starts a job, and fatal resource errors never run page cleanup.
         if evaluation_started
+            && self.execution_job_boundary()
             && !result
                 .as_ref()
                 .is_err_and(|error| error.kind == ErrorKind::Resource)
@@ -46,6 +74,7 @@ impl Runtime {
         source: &str,
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
+        self.ensure_executable()?;
         if self.nested_script_depth >= MAX_NESTED_SCRIPTS {
             return Err(JsError::resource("Nested script depth exceeds 8"));
         }
@@ -433,7 +462,8 @@ mod tests {
         for (limits, first, second, message) in [
             (
                 Limits {
-                    string_bytes: 3,
+                    // Source bytes plus the newly charged global this binding.
+                    string_bytes: 3 + "this".len(),
                     ..Limits::default()
                 },
                 "1;",

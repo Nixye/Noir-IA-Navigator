@@ -1,0 +1,30 @@
+<!doctype html>
+<title>Background ownership pending</title>
+<style>
+.panel { width: 160px; height: 32px; color: transparent; }
+.red { background: rgba(255,0,0,0.5); }
+.blue { background: rgba(0,0,255,0.25); }
+.layers { width: 180px; height: 32px; color: transparent; background: rgba(255,0,0,0.5); }
+.inline-layer { background: rgba(0,255,0,0.5); }
+.clip { position: relative; overflow: hidden; width: 80px; height: 32px; margin-top: 12px; }
+.positioned { position: absolute; left: 60px; top: 0; width: 80px; height: 32px; color: transparent; background: rgba(255,0,0,0.5); }
+</style>
+<div id="panel" class="panel red">Direct</div>
+<div class="layers"><span class="inline-layer">Layer</span></div>
+<div class="clip"><div class="positioned">Clipped</div></div>
+<script>
+var panel = document.getElementById('panel');
+var classes = panel.classList;
+var jobs = 0;
+var frames = 0;
+var conversions = 0;
+document.title = 'R2 red';
+Promise.resolve().then(function () { jobs += 1; });
+requestAnimationFrame(function () {
+  frames += 1;
+  classes.replace('red', {toString: function () { conversions += 1; return 'blue'; }});
+  document.title = frames === 1 && jobs === 1 && conversions === 1 &&
+    classes === panel.classList && classes.contains('blue') && !classes.contains('red')
+    ? 'R2 blue' : 'R2 failed';
+});
+</script>

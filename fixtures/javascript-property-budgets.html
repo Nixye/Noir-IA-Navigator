@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Propriedades moderadas com quotas</title></head>
+<body>
+<h1>Objetos com centenas de propriedades</h1>
+<p>Fixture sintética local. Resultado esperado: OK:300:299:0.</p>
+<p id="result">Ainda não executado.</p>
+<script>
+const object = {};
+for (let i = 0; i < 300; i++) { object['key' + i] = i; }
+const copy = {...object};
+const named = [];
+for (let i = 0; i < 300; i++) { named['key' + i] = copy['key' + i]; }
+const count = Object.keys(copy).length;
+document.getElementById('result').textContent =
+    (count === 300 && named.key299 === 299 && named.length === 0 ? 'OK' : 'FAIL') +
+    ':' + count + ':' + named.key299 + ':' + named.length;
+</script>
+</body>
+</html>

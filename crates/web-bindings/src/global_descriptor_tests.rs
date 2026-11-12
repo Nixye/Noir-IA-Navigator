@@ -1,6 +1,131 @@
 use super::*;
 
 #[test]
+fn iterative_evaluation_fixture_preserves_dom_effects_on_one_mib_stack() {
+    std::thread::Builder::new()
+        .name("iterative-evaluation-1mib".into())
+        .stack_size(1024 * 1024)
+        .spawn(|| {
+            let html = include_str!("../../../fixtures/javascript-iterative-evaluation.html");
+            let source = html
+                .split_once("<script>")
+                .unwrap()
+                .1
+                .split_once("</script>")
+                .unwrap()
+                .0;
+            let mut session = DocumentSession::new(web_html::parse(html).unwrap());
+            session.execute(source).unwrap();
+            assert!(
+                session
+                    .document
+                    .text_content(0)
+                    .contains("PASS: expressoes iterativas, referencias e bridges.")
+            );
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+#[test]
+fn iterative_evaluation_resource_preserves_dom_transaction_and_skips_cleanup() {
+    let mut session = DocumentSession::new(web_html::parse("<p id=out>stable</p>").unwrap());
+    session.execute("var stable=7;").unwrap();
+    let error = session.execute("stable=8;document.getElementById('out').textContent='bad';queueMicrotask(function(){document.getElementById('out').textContent='late';});function recurse(n){return n?1+(2+(3+recurse(n-1))):0;}try{recurse(1000);}finally{document.getElementById('out').textContent='cleanup';}").unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Resource);
+    assert!(session.scripts_disabled);
+    assert_eq!(
+        session.runtime.global_value("stable"),
+        Some(Value::Number(7.))
+    );
+    let text = session.document.text_content(0);
+    assert!(text.contains("stable"));
+    for forbidden in ["bad", "late", "cleanup"] {
+        assert!(!text.contains(forbidden));
+    }
+}
+
+#[test]
+fn error_ancestor_fixture_updates_dom_on_one_mib_stack() {
+    std::thread::Builder::new()
+        .name("error-ancestors-1mib".into())
+        .stack_size(1024 * 1024)
+        .spawn(|| {
+            let html = include_str!("../../../fixtures/javascript-error-ancestors.html");
+            let source = html
+                .split_once("<script>")
+                .unwrap()
+                .1
+                .split_once("</script>")
+                .unwrap()
+                .0;
+            let mut session = DocumentSession::new(web_html::parse(html).unwrap());
+            session.execute(source).unwrap();
+            assert!(
+                session
+                    .document
+                    .text_content(0)
+                    .contains("PASS: heranca Error, receivers e limites.")
+            );
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+#[test]
+fn error_ancestors_survive_dynamic_scripts_microtasks_and_retained_execution() {
+    let mut session = DocumentSession::new(web_html::parse("<p id=out>waiting</p>").unwrap());
+    session.execute("var trace='';function callback(){trace+=Object.getPrototypeOf(callback).name;document.getElementById('out').textContent=trace;}Object.setPrototypeOf(callback,Error);const script=document.createElement('script');script.text=\"Object.setPrototypeOf(callback,window.TypeError);queueMicrotask(callback);\";document.head.appendChild(script);").unwrap();
+    assert_eq!(
+        session
+            .execute("Object.getPrototypeOf(callback)===TypeError&&trace==='TypeError';")
+            .unwrap(),
+        Value::Bool(true)
+    );
+    session
+        .execute("Object.setPrototypeOf(callback,window.Error);queueMicrotask(callback);")
+        .unwrap();
+    assert!(session.document.text_content(0).contains("TypeErrorError"));
+    assert_eq!(
+        session
+            .execute("Object.getPrototypeOf(callback)===Error&&callback instanceof Function;")
+            .unwrap(),
+        Value::Bool(true)
+    );
+}
+
+#[test]
+fn function_prototype_fixture_changes_real_inheritance_and_dom() {
+    let html = include_str!("../../../fixtures/javascript-function-prototypes.html");
+    let source = html
+        .split_once("<script>")
+        .unwrap()
+        .1
+        .split_once("</script>")
+        .unwrap()
+        .0;
+    let mut s = DocumentSession::new(web_html::parse(html).unwrap());
+    s.execute(source).unwrap();
+    assert!(
+        s.document
+            .text_content(0)
+            .contains("Protótipos e receptores de funções ativos.")
+    );
+}
+
+#[test]
+fn function_prototypes_survive_retained_scripts_and_host_callback_receivers() {
+    let mut s = DocumentSession::new(web_html::parse("<p id=out>waiting</p>").unwrap());
+    s.execute("var observed='';function callback(){observed+=callback.marker;document.getElementById('out').textContent=observed;}Object.setPrototypeOf(callback,{marker:'x'});queueMicrotask(callback);").unwrap();
+    assert_eq!(s.execute("Object.getPrototypeOf(callback).marker==='x'&&callback.call===undefined&&observed==='x';").unwrap(),Value::Bool(true));
+    s.execute("Object.setPrototypeOf(callback,{marker:'y'});queueMicrotask(callback);")
+        .unwrap();
+    assert!(s.document.text_content(0).contains("xy"));
+}
+
+#[test]
 fn promise_inspection_fixture_reaches_existing_finally_and_updates_dom() {
     let html = include_str!("../../../fixtures/javascript-promise-inspection.html");
     let source = html
@@ -93,4 +218,56 @@ fn fatal_resource_rollback_restores_global_metadata_and_bindings() {
     assert_eq!(s.runtime.global_value("Map"), Some(Value::Number(17.)));
     assert!(s.document.text_content(0).contains("safe"));
     assert!(s.take_script_requests().is_empty());
+}
+
+#[test]
+fn bounded_stack_fixture_runs_with_dom_on_one_mib_stack() {
+    std::thread::Builder::new()
+        .name("bindings-1mib".into())
+        .stack_size(1024 * 1024)
+        .spawn(|| {
+            let html = include_str!("../../../fixtures/javascript-stack-budgets.html");
+            let source = html
+                .split_once("<script>")
+                .unwrap()
+                .1
+                .split_once("</script>")
+                .unwrap()
+                .0;
+            let mut session = DocumentSession::new(web_html::parse(html).unwrap());
+            session.execute(source).unwrap();
+            assert!(
+                session
+                    .document
+                    .text_content(0)
+                    .contains("Expressões, blocos e chamadas executados com limites ativos.")
+            );
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+#[test]
+fn cumulative_statement_depth_is_fatal_and_rolls_back_dom_on_one_mib_stack() {
+    std::thread::Builder::new()
+        .name("bindings-depth-1mib".into())
+        .stack_size(1024 * 1024)
+        .spawn(|| {
+            let mut session = DocumentSession::new(web_html::parse("<p id=out>stable</p>").unwrap());
+            session.execute("var stable=7;").unwrap();
+            let nested = format!("{}f();{}", "{".repeat(10), "}".repeat(10));
+            let source = format!("stable=8;document.getElementById('out').textContent='bad';queueMicrotask(function(){{document.getElementById('out').textContent='late'}});function f(){{{nested}}}f();");
+            let error = session.execute(&source).unwrap_err();
+            assert_eq!(error.kind, ErrorKind::Resource);
+            assert_eq!(error.message, "Statement evaluation depth exceeded");
+            assert!(session.scripts_disabled);
+            assert_eq!(session.runtime.global_value("stable"), Some(Value::Number(7.)));
+            assert!(session.document.text_content(0).contains("stable"));
+            assert!(!session.document.text_content(0).contains("bad"));
+            assert!(!session.document.text_content(0).contains("late"));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
 }

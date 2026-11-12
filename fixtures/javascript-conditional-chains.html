@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<title>Caudas condicionais planas</title>
+<body>
+<h1>Caudas condicionais planas</h1>
+<p id="result">Executando...</p>
+<script>
+var checks = 0;
+function test(index, wanted) { checks++; return index === wanted; }
+function choose(wanted) {
+  return (test(0, wanted) ? 100 : test(1, wanted) ? 101 : test(2, wanted) ? 102 : test(3, wanted) ? 103 : test(4, wanted) ? 104 : test(5, wanted) ? 105 : test(6, wanted) ? 106 : test(7, wanted) ? 107 : test(8, wanted) ? 108 : test(9, wanted) ? 109 : test(10, wanted) ? 110 : test(11, wanted) ? 111 : test(12, wanted) ? 112 : test(13, wanted) ? 113 : test(14, wanted) ? 114 : test(15, wanted) ? 115 : test(16, wanted) ? 116 : test(17, wanted) ? 117 : test(18, wanted) ? 118 : test(19, wanted) ? 119 : 7)+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1;
+}
+var a = choose(0), b = choose(10), c = choose(19), d = choose(-1);
+var ok = a === 145 && b === 155 && c === 164 && d === 52 && checks === 52;
+var untouched = 0;
+var selected = false ? (untouched = 1) : true ? 8 : (untouched = 2);
+ok = ok && selected === 8 && untouched === 0;
+var receiver = {value: 9, method: function() { 'use strict'; return this; }};
+var detached = (false ? null : true ? receiver.method : null)();
+ok = ok && detached === undefined;
+var globalMarker = 3;
+function indirect() {
+  var globalMarker = 99;
+  return (false ? null : true ? eval : null)('globalMarker');
+}
+ok = ok && indirect() === 3;
+function* suspended() {
+  return (yield 'first') ? 1 : (yield 'second') ? 2 : 3;
+}
+var iterator = suspended();
+var first = iterator.next(), second = iterator.next(false), last = iterator.next(true);
+ok = ok && first.value === 'first' && second.value === 'second' && last.value === 2 && last.done;
+async function later() {
+  return (await Promise.resolve(false)) ? 1 :
+         (await Promise.resolve(true)) ? 2 : 3;
+}
+later().then(function(value) {
+  document.getElementById('result').textContent = ok && value === 2 ?
+    'PASS: caudas condicionais, efeitos e suspensao.' :
+    'FAIL: caudas condicionais.';
+});
+</script>
+</body>
+</html>

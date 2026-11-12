@@ -856,7 +856,32 @@ impl Runtime {
         host: &mut impl Host,
         count: &mut usize,
     ) -> Result<(), JsError> {
-        if self.promises.draining || self.call_depth != 0 {
+        self.drain_promise_checkpoint(host, count, false)
+    }
+
+    /// Only the finalization loop uses this after a callback has fully returned.
+    /// Keep that loop marked for GC/recursive cleanup while allowing its queued
+    /// microtasks to run before the next registry. Every page guard still vetoes
+    /// the checkpoint, including setters without an ordinary call frame.
+    pub(super) fn drain_promise_jobs_after_finalizer(
+        &mut self,
+        host: &mut impl Host,
+        count: &mut usize,
+    ) -> Result<(), JsError> {
+        debug_assert!(self.finalization_registries.draining);
+        self.drain_promise_checkpoint(host, count, true)
+    }
+
+    fn drain_promise_checkpoint(
+        &mut self,
+        host: &mut impl Host,
+        count: &mut usize,
+        after_finalizer: bool,
+    ) -> Result<(), JsError> {
+        if self.page_execution_is_active()
+            || self.promises.draining
+            || (self.finalization_registries.draining && !after_finalizer)
+        {
             return Ok(());
         }
         self.promises.draining = true;

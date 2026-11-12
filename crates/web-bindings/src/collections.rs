@@ -1,4 +1,4 @@
-//! Bounded live tag collections. Queries retain roots/filters, never snapshots.
+//! Bounded live collections. Queries retain roots/filters, never snapshots.
 //! Host descriptors, expandos, HTMLCollection prototypes and symbol iteration
 //! remain outside this interface; Array.from uses the VM's array-like path.
 use super::*;
@@ -7,11 +7,20 @@ use std::sync::Arc;
 pub(super) const BASE: u64 = 4_000_000;
 pub(super) const METHOD: u64 = 120_020;
 pub(super) const METHODS: [&str; 2] = ["item", "namedItem"];
+pub(super) const NODE_ITEM: u64 = METHOD + 2;
 const MAX_COLLECTIONS: usize = 64;
 const MAX_NAME_BYTES: usize = 1024;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Tag,
+    Children,
+    ChildNodes,
+}
+
 #[derive(Debug, Clone)]
 struct Query {
+    kind: Kind,
     root: NodeId,
     tag: Arc<str>,
 }
@@ -24,7 +33,7 @@ pub(super) fn is_collection(object: u64) -> bool {
     (BASE..BASE + MAX_COLLECTIONS as u64).contains(&object)
 }
 pub(super) fn is_method(object: u64) -> bool {
-    (METHOD..METHOD + METHODS.len() as u64).contains(&object)
+    (METHOD..=NODE_ITEM).contains(&object)
 }
 fn tag_method(object: u64) -> bool {
     [
@@ -40,7 +49,7 @@ fn tag_method(object: u64) -> bool {
             == Some(&"getElementsByTagName")
     })
 }
-fn property_index(property: &str) -> Option<usize> {
+pub(super) fn property_index(property: &str) -> Option<usize> {
     let index = property.parse::<u32>().ok()?;
     (index != u32::MAX && index.to_string() == property).then_some(index as usize)
 }
@@ -69,6 +78,19 @@ enum Lookup<'a> {
 }
 
 impl DomHost<'_> {
+    pub(super) fn is_nodelist_receiver(&self, object: u64) -> bool {
+        if (LIST..LIST + 64).contains(&object) {
+            return self.state.lists.get((object - LIST) as usize).is_some();
+        }
+        is_collection(object)
+            && self
+                .state
+                .collections
+                .queries
+                .get((object - BASE) as usize)
+                .is_some_and(|query| query.kind == Kind::ChildNodes)
+    }
+
     fn collection_query(&self, object: u64) -> Result<Query, JsError> {
         if !is_collection(object) {
             return Err(JsError::runtime("HTMLCollection receiver required"));
@@ -112,13 +134,9 @@ impl DomHost<'_> {
             .sum::<usize>();
         self.charge_tree_read(work.saturating_add(tag.len()).saturating_add(1))?;
         let tag = tag.to_ascii_lowercase();
-        if let Some(index) = self
-            .state
-            .collections
-            .queries
-            .iter()
-            .position(|query| query.root == root && query.tag.as_ref() == tag)
-        {
+        if let Some(index) = self.state.collections.queries.iter().position(|query| {
+            query.kind == Kind::Tag && query.root == root && query.tag.as_ref() == tag
+        }) {
             return Ok(Value::Host(BASE + index as u64));
         }
         if self.state.collections.queries.len() >= MAX_COLLECTIONS {
@@ -126,10 +144,115 @@ impl DomHost<'_> {
         }
         let index = self.state.collections.queries.len();
         self.state.collections.queries.push(Query {
+            kind: Kind::Tag,
             root,
             tag: Arc::from(tag),
         });
         Ok(Value::Host(BASE + index as u64))
+    }
+
+    pub(super) fn child_collection(
+        &mut self,
+        root: NodeId,
+        elements: bool,
+    ) -> Result<Value, JsError> {
+        let node = self
+            .document
+            .nodes
+            .get(root)
+            .ok_or_else(|| JsError::runtime("Invalid collection root"))?;
+        if elements && !matches!(node.kind, NodeKind::Document | NodeKind::Element(_)) {
+            return Ok(Value::Undefined);
+        }
+        let kind = if elements {
+            Kind::Children
+        } else {
+            Kind::ChildNodes
+        };
+        self.charge_tree_read(self.state.collections.queries.len().saturating_add(1))?;
+        if let Some(index) = self
+            .state
+            .collections
+            .queries
+            .iter()
+            .position(|query| query.root == root && query.kind == kind)
+        {
+            return Ok(Value::Host(BASE + index as u64));
+        }
+        if self.state.collections.queries.len() >= MAX_COLLECTIONS {
+            return Err(JsError::resource("Live collection quota exceeded"));
+        }
+        let index = self.state.collections.queries.len();
+        self.state.collections.queries.push(Query {
+            root,
+            kind,
+            tag: Arc::from(""),
+        });
+        Ok(Value::Host(BASE + index as u64))
+    }
+
+    fn direct_collection_lookup(
+        &mut self,
+        query: &Query,
+        lookup: Lookup<'_>,
+    ) -> Result<Value, JsError> {
+        let root = self
+            .document
+            .nodes
+            .get(query.root)
+            .ok_or_else(|| JsError::runtime("Invalid collection root"))?;
+        // Text cannot own children. Direct collections reflect actual children,
+        // including inert roots; only descendant tag queries prune inert trees.
+        let children = if matches!(root.kind, NodeKind::Text(_)) {
+            0
+        } else {
+            root.children.len()
+        };
+        if children > MAX_NODES {
+            return Err(JsError::resource(
+                "Live collection traversal limit exceeded",
+            ));
+        }
+        self.charge_tree_read(children.saturating_add(1))?;
+        let mut count = 0;
+        for index in 0..children {
+            let id = self.document.nodes[query.root].children[index];
+            let node = self
+                .document
+                .nodes
+                .get(id)
+                .ok_or_else(|| JsError::runtime("Invalid collection node"))?;
+            let eligible =
+                query.kind == Kind::ChildNodes || matches!(node.kind, NodeKind::Element(_));
+            if !eligible {
+                continue;
+            }
+            let work = match (&lookup, &node.kind) {
+                (Lookup::Name(name), NodeKind::Element(e)) => name
+                    .len()
+                    .saturating_add(e.attr("id").map_or(0, str::len))
+                    .saturating_add(e.attr("name").map_or(0, str::len)),
+                _ => 0,
+            };
+            self.charge_tree_read(work.saturating_add(1))?;
+            let found = match lookup {
+                Lookup::Length => false,
+                Lookup::Index(index) => index == count,
+                Lookup::Name(name) => self
+                    .document
+                    .element(id)
+                    .is_some_and(|e| e.attr("id") == Some(name) || e.attr("name") == Some(name)),
+            };
+            if found {
+                return Ok(Self::node_value(id));
+            }
+            count += 1;
+        }
+        Ok(if matches!(lookup, Lookup::Length) {
+            Value::Number(count as f64)
+        } else {
+            Value::Null
+        })
     }
 
     fn collection_lookup(&mut self, object: u64, lookup: Lookup<'_>) -> Result<Value, JsError> {
@@ -144,6 +267,9 @@ impl DomHost<'_> {
         }
         if matches!(lookup, Lookup::Name("")) {
             return Ok(Value::Null);
+        }
+        if query.kind != Kind::Tag {
+            return self.direct_collection_lookup(&query, lookup);
         }
         let root = self
             .document
@@ -244,6 +370,8 @@ impl DomHost<'_> {
                 "length" => Value::Number(1.0),
                 "name" => Value::string(if tag_method(object) {
                     "getElementsByTagName"
+                } else if object == NODE_ITEM {
+                    "item"
                 } else {
                     METHODS[(object - METHOD) as usize]
                 }),
@@ -253,19 +381,27 @@ impl DomHost<'_> {
         if !is_collection(object) {
             return Ok(None);
         }
-        self.collection_query(object)?;
+        let query = self.collection_query(object)?;
         self.charge_tree_read(property.len().saturating_add(1))?;
         let value = if property == "length" {
             self.collection_lookup(object, Lookup::Length)?
-        } else if let Some(index) = METHODS.iter().position(|name| *name == property) {
+        } else if query.kind == Kind::ChildNodes && property == "forEach" {
+            Value::Native("Array.forEach")
+        } else if query.kind == Kind::ChildNodes && property == "item" {
+            Value::Host(NODE_ITEM)
+        } else if query.kind != Kind::ChildNodes
+            && let Some(index) = METHODS.iter().position(|name| *name == property)
+        {
             Value::Host(METHOD + index as u64)
         } else if reserved_name(property) {
             Value::Undefined
         } else {
             let value = if let Some(index) = property_index(property) {
                 self.collection_lookup(object, Lookup::Index(index))?
-            } else {
+            } else if query.kind != Kind::ChildNodes {
                 self.collection_lookup(object, Lookup::Name(property))?
+            } else {
+                Value::Null
             };
             if value == Value::Null {
                 Value::Undefined
@@ -284,11 +420,6 @@ impl DomHost<'_> {
         if is_method(object) || tag_method(object) {
             return Ok(Some(matches!(property, "length" | "name")));
         }
-        if is_collection(object) && (property == "length" || METHODS.contains(&property)) {
-            self.collection_query(object)?;
-            self.charge_tree_read(property.len().saturating_add(1))?;
-            return Ok(Some(true));
-        }
         // Reads only immutable query data and current DOM metadata, never getters.
         self.collection_get(object, property)
             .map(|value| value.map(|value| value != Value::Undefined))
@@ -306,14 +437,50 @@ impl DomHost<'_> {
             if method != "call" {
                 return Err(JsError::runtime("Invalid collection method invocation"));
             }
-            METHODS[(object - METHOD) as usize]
+            if object == NODE_ITEM {
+                "item"
+            } else {
+                METHODS[(object - METHOD) as usize]
+            }
         } else {
             method
         };
         let receiver = this
             .as_host()
             .ok_or_else(|| JsError::runtime("HTMLCollection receiver required"))?;
-        self.collection_query(receiver)?;
+        if object == NODE_ITEM {
+            let snapshot = (LIST..LIST + 64).contains(&receiver);
+            if snapshot {
+                if self.state.lists.get((receiver - LIST) as usize).is_none() {
+                    return Err(JsError::runtime("Invalid NodeList handle"));
+                }
+            } else if self.collection_query(receiver)?.kind != Kind::ChildNodes {
+                return Err(JsError::runtime("NodeList receiver required"));
+            }
+            let argument = args
+                .first()
+                .cloned()
+                .ok_or_else(|| JsError::runtime("NodeList.item requires an argument"))?;
+            let number = runtime.coerce_to_number(argument, self)?;
+            let index = if !number.is_finite() || number == 0. {
+                0
+            } else {
+                number.trunc().rem_euclid(4_294_967_296.) as u32
+            };
+            if snapshot {
+                self.charge_tree_read(1)?;
+                return Ok(self.state.lists[(receiver - LIST) as usize]
+                    .get(index as usize)
+                    .map_or(Value::Null, |&id| Self::node_value(id)));
+            }
+            return self.collection_lookup(receiver, Lookup::Index(index as usize));
+        }
+        let query = self.collection_query(receiver)?;
+        if ((METHOD..NODE_ITEM).contains(&object) && query.kind == Kind::ChildNodes)
+            || (name == "namedItem" && query.kind == Kind::ChildNodes)
+        {
+            return Err(JsError::runtime("Collection method receiver type mismatch"));
+        }
         let argument = args
             .first()
             .cloned()
@@ -339,3 +506,9 @@ impl DomHost<'_> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod recovery_r3_tests;
+
+#[cfg(test)]
+mod recovery_r4_tests;

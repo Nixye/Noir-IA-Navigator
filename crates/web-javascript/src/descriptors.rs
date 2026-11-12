@@ -577,7 +577,15 @@ impl Runtime {
             {
                 return Ok(Assignment::Store);
             }
-            if let Some(descriptor) = self.own_descriptor(&current, property, host)? {
+            let descriptor =
+                if crate::reflection::intrinsic_ancestors::readonly_ancestor_names(&current)
+                    .is_some()
+                {
+                    self.readonly_ancestor_descriptor(&current, property, false)?
+                } else {
+                    self.own_descriptor(&current, property, host)?
+                };
+            if let Some(descriptor) = descriptor {
                 if let Some((_, setter)) = descriptor.metadata.accessor {
                     if matches!(setter, Value::Undefined) {
                         return Ok(Assignment::Blocked);
@@ -592,8 +600,14 @@ impl Runtime {
                 });
             }
             current = match current {
+                ref value
+                    if crate::reflection::intrinsic_ancestors::readonly_ancestor_names(value)
+                        .is_some() =>
+                {
+                    self.readonly_ancestor_parent(value)?.unwrap()
+                }
                 Value::Native("Symbol" | "Number") => Value::Native("Function.prototype"),
-                Value::Native("Function.prototype") => self.object_prototype_value()?,
+                Value::Function(id) => self.function_internal_prototype(id)?,
                 Value::Object(id) => match &self.heap[id] {
                     Heap::Object(object) => object.prototype.clone().unwrap_or(Value::Null),
                     _ => unreachable!(),
@@ -608,10 +622,9 @@ impl Runtime {
                 _ => Value::Null,
             };
             if matches!(current, Value::Host(_) | Value::Native(_))
-                && !matches!(
-                    current,
-                    Value::Native("Symbol" | "Number" | "Function.prototype")
-                )
+                && !matches!(current, Value::Native("Symbol" | "Number"))
+                && crate::reflection::intrinsic_ancestors::readonly_ancestor_names(&current)
+                    .is_none()
             {
                 return Err(JsError::runtime(
                     "Assignments through Host/native prototype descriptors are not implemented",
@@ -751,11 +764,20 @@ impl Runtime {
             if !old_writable && definition.writable == Some(true) {
                 return Err(self.property_type_error("Cannot make array length writable"));
             }
+            if definition.writable == Some(false) {
+                self.reserve_property_metadata(id, "length")?;
+            }
             let result = if let Some(value) = definition.value {
                 self.set_array_length(id, value, host)
             } else {
                 Ok(())
             };
+            if result
+                .as_ref()
+                .is_err_and(|error| error.kind == crate::ErrorKind::Resource)
+            {
+                return result;
+            }
             if definition.writable == Some(false) {
                 self.property_metadata.entry(id).or_default().insert(
                     "length".into(),
@@ -857,6 +879,7 @@ impl Runtime {
         {
             self.charge_string(property.len())?;
         }
+        self.reserve_property_metadata(id, property)?;
         self.set_unchecked(object.clone(), property, descriptor.value, host)?;
         if let Some(deleted) = self.deleted_synthetics.get_mut(&id) {
             deleted.remove(property);
@@ -1014,6 +1037,11 @@ impl Runtime {
         if count > 4096 {
             return Err(JsError::resource("Own property name count exceeds 4096"));
         }
+        self.property_work(
+            bytes
+                .saturating_add(count)
+                .saturating_mul(1 + count.checked_ilog2().unwrap_or(0) as usize),
+        )?;
         self.charge_string(bytes)?;
         self.remaining = self.remaining.checked_sub(count as u64).ok_or_else(|| {
             JsError::resource("Own property enumeration instruction budget exceeded")
@@ -1075,9 +1103,8 @@ impl Runtime {
             if !self.has_own_property(&descriptors, &key)? || !self.own_enumerable(owner, &key) {
                 continue;
             }
-            if definitions.len() >= 128 {
-                return Err(JsError::resource("Descriptor batch exceeds 128 properties"));
-            }
+            Self::check_named_property_count(definitions.len().saturating_add(1))?;
+            self.property_work(key.len().saturating_add(1))?;
             let value = self.get(descriptors.clone(), &key, host)?;
             definitions.push((key, self.definition(value, host)?));
         }
@@ -1095,8 +1122,10 @@ impl Runtime {
             let value = self.get_symbol(descriptors.clone(), key, host)?;
             symbol_definitions.push((key, self.definition(value, host)?));
         }
-        if definitions.len() + symbol_definitions.len() > 128 {
-            return Err(JsError::resource("Descriptor batch exceeds 128 properties"));
+        if symbol_definitions.len() > 128 {
+            return Err(JsError::resource(
+                "Symbol descriptor batch exceeds 128 properties",
+            ));
         }
         for (key, definition) in definitions {
             self.define_property(object, &key, definition, host)?;
@@ -1207,20 +1236,14 @@ impl Runtime {
                     }
                 }
             }
-            if names.len() + symbols.len() > 128 {
-                return Err(JsError::resource(
-                    "Descriptor result exceeds object property limit",
-                ));
-            }
-            let mut result = BTreeMap::new();
+            Self::check_named_property_count(names.len())?;
+            let result = self.object(BTreeMap::new(), None)?;
             for key in &names {
                 if let Some(descriptor) = self.own_descriptor(&object, key, host)? {
-                    result.insert(key.clone(), self.descriptor_object(descriptor)?);
+                    let value = self.descriptor_object(descriptor)?;
+                    self.define_field(result.clone(), key, value)?;
                 }
             }
-            let result = self.object(result, None)?;
-            let result_owner = self.heap_owner(&result)?;
-            self.remember_property_order(result_owner, names);
             for key in symbols {
                 if let Some(descriptor) = self.symbol_descriptor(&object, key)? {
                     let value = self.descriptor_object(descriptor)?;

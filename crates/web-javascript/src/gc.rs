@@ -36,13 +36,7 @@ impl Runtime {
         roots: &[Value],
         host: &impl Host,
     ) -> Result<CollectionStats, JsError> {
-        if self.call_depth != 0
-            || self.eval_depth != 0
-            || self.dynamic_depth != 0
-            || self.nested_script_depth != 0
-            || self.resumable_execution_active()
-            || self.finalization_registries.draining
-        {
+        if self.execution_is_active() {
             return Ok(CollectionStats::default());
         }
         let mut heap_live = vec![false; self.heap.len()];
@@ -132,6 +126,8 @@ impl Runtime {
                             Heap::Function(function) => {
                                 pending.push(Root::Scope(function.scope));
                                 pending.push(Root::Value(function.lexical_this.clone()));
+                                pending
+                                    .extend(function.internal_prototype.clone().map(Root::Value));
                                 pending
                                     .extend(function.properties.values().cloned().map(Root::Value));
                             }

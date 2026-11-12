@@ -1,0 +1,58 @@
+<!doctype html>
+<title>R3 pending</title>
+<style>.row { display: block; width: 120px; height: 32px; background: #2468ac; }</style>
+<div id="list">seed<div id="a" class="row">A</div><div id="b" class="row">B</div></div>
+<div id="archive"></div>
+<button id="edit" type="button">Edit</button>
+<script>
+var list = document.getElementById('list');
+var archive = document.getElementById('archive');
+var elements = list.children;
+var nodes = list.childNodes;
+var snapshot = document.querySelectorAll('.row');
+var a = document.getElementById('a');
+var b = document.getElementById('b');
+// Always perform every read before identity checks, including on the R2 baseline.
+var lastElements;
+var lastNodes;
+for (var i = 0; i < 96; i += 1) {
+  lastElements = list.children;
+  lastNodes = list.childNodes;
+}
+var stable = elements === lastElements && nodes === lastNodes &&
+  elements !== nodes && elements.length === 2 && nodes.length === 3;
+var jobs = 0;
+var frames = 0;
+var clicks = 0;
+document.title = stable ? 'R3 ready' : 'R3 failed';
+Promise.resolve().then(function () {
+  jobs += 1;
+  var c = document.createElement('div');
+  c.id = 'c';
+  c.className = 'row';
+  c.textContent = 'C';
+  list.appendChild(c);
+  document.title = stable && jobs === 1 && elements.length === 3 &&
+    nodes.length === 4 && elements[2] === c && snapshot.length === 2 &&
+    snapshot[0] === a && snapshot[1] === b ? 'R3 job' : 'R3 failed';
+});
+requestAnimationFrame(function () {
+  frames += 1;
+  list.removeChild(a);
+  archive.appendChild(b);
+  list.innerHTML = '<div id="d" class="row">D</div><div id="e" class="row">E</div>';
+  document.title = jobs === 1 && frames === 1 && elements === list.children &&
+    nodes === list.childNodes && elements.length === 2 && nodes.length === 2 &&
+    elements[0].id === 'd' && nodes[0] === elements[0] &&
+    snapshot.length === 2 && snapshot[0] === a && snapshot[1] === b &&
+    a.parentNode === null && b.parentNode === archive ? 'R3 frame' : 'R3 failed';
+});
+document.getElementById('edit').addEventListener('click', function () {
+  clicks += 1;
+  list.appendChild(a);
+  list.removeChild(document.getElementById('e'));
+  document.title = clicks === 1 && frames === 1 && jobs === 1 &&
+    elements.length === 2 && nodes.length === 2 && elements[1] === a &&
+    snapshot[0] === a && snapshot[1] === b ? 'R3 clicked' : 'R3 failed';
+});
+</script>

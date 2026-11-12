@@ -515,8 +515,9 @@ impl JsonParser<'_, '_> {
                             return Err(JsError::resource("JSON property name exceeds 1024 bytes"));
                         }
                         self.runtime.charge_string(key.len())?;
-                        if properties.len() >= 128 && !properties.contains_key(&key) {
-                            return Err(JsError::resource("JSON object property limit exceeded"));
+                        if !properties.contains_key(&key) {
+                            self.runtime
+                                .reserve_property_builder_key(properties.len(), &key)?;
                         }
                         self.whitespace();
                         if !self.eat(b':') {
@@ -537,7 +538,7 @@ impl JsonParser<'_, '_> {
                         }
                     }
                 }
-                let value = self.runtime.object(properties, None)?;
+                let value = self.runtime.object_reserved(properties, None)?;
                 if let Value::Object(id) = value {
                     self.runtime.remember_property_order(id, order);
                 }
@@ -804,9 +805,12 @@ mod tests {
     #[test]
     fn enforces_nesting_counts_input_and_existing_heap_string_work_limits() {
         let parse = |source: String| {
-            Runtime::default()
-                .json_parse(&[Value::string(source)])
-                .unwrap_err()
+            Runtime::new(Limits {
+                instructions: 10_000_000,
+                ..Limits::default()
+            })
+            .json_parse(&[Value::string(source)])
+            .unwrap_err()
         };
         assert_eq!(
             parse(format!("{}0{}", "[".repeat(33), "]".repeat(33))).kind,
@@ -841,7 +845,7 @@ mod tests {
         assert_eq!(
             parse(format!(
                 "{{{}}}",
-                (0..129)
+                (0..4097)
                     .map(|i| format!("\"k{i}\":0"))
                     .collect::<Vec<_>>()
                     .join(",")

@@ -1,9 +1,12 @@
 //! Bounded continuations for the deliberately restricted async/generator subset.
 //! No suspended expression is re-evaluated when its continuation resumes.
+use crate::ArrayHoles;
 use crate::async_iteration::{AsyncIteratorOperation, AsyncIteratorRecord};
 use crate::exception_diagnostics::CatchDiagnostic;
 use crate::language::IteratorRecord;
-use crate::parser::{ClassDefinition, ForBinding, FunctionKind, Pattern};
+use crate::parser::{
+    ClassDefinition, ConditionalChain, ForBinding, FunctionKind, IfChain, Pattern,
+};
 use crate::prepared_call::PreparedCall;
 use crate::{Declaration, ErrorKind, Expr, Flow, Host, JsError, Place, Runtime, Stmt, Value};
 use std::{
@@ -51,11 +54,60 @@ struct Machine {
     pending: Option<(usize, Action)>,
     abrupt: Option<Completion>,
 }
+
+// Stream traced values into deduplicated roots. No temporary Value vector is
+// copied merely to discover heap edges; each actual retained slot is reserved.
+struct ContinuationRoots<'a> {
+    runtime: &'a mut Runtime,
+    roots: Vec<u64>,
+    retained: BTreeSet<usize>,
+    error: Option<JsError>,
+}
+impl Extend<Value> for ContinuationRoots<'_> {
+    fn extend<T: IntoIterator<Item = Value>>(&mut self, values: T) {
+        for value in values {
+            if self.error.is_some() {
+                break;
+            }
+            let id = match &value {
+                Value::Array(id) | Value::Object(id) | Value::Function(id) => *id,
+                _ => continue,
+            };
+            if self.retained.contains(&id) {
+                continue;
+            }
+            let result = self.runtime.charge_array_slots(1).and_then(|_| {
+                if self.roots.len() == self.roots.capacity() {
+                    let next = self.roots.capacity().saturating_mul(2).clamp(4, 4096);
+                    if next <= self.roots.len() {
+                        return Err(JsError::resource("External VM root limit exceeded"));
+                    }
+                    // Tokens are u64 metadata, not another Value buffer. Their
+                    // bounded geometric growth charges the possible prefix move.
+                    self.runtime.value_copy_work(self.roots.len())?;
+                    self.roots
+                        .try_reserve_exact(next - self.roots.len())
+                        .map_err(|_| JsError::resource("Continuation root storage unavailable"))?;
+                }
+                self.runtime.retain_value(value)
+            });
+            match result {
+                Ok(root) => {
+                    self.retained.insert(id);
+                    self.roots.push(root);
+                }
+                Err(error) => self.error = Some(error),
+            }
+        }
+    }
+}
 #[derive(Clone, Debug)]
 enum Frame {
     Sequence(Arc<Vec<Stmt>>, usize, usize),
     Statement(Stmt, usize),
+    IfChain(IfChain, usize, usize),
     Evaluate(Expr, usize, Action),
+    ConditionalChain(ConditionalChain, usize, usize, Action),
     Apply(Value, usize, Action),
     Variables(Declaration, Arc<Vec<(String, Option<Expr>)>>, usize, usize),
     Loop(Expr, Box<Stmt>, usize),
@@ -85,6 +137,7 @@ enum Action {
     Return,
     Throw,
     Branch(Box<Stmt>, Option<Box<Stmt>>),
+    IfChain(IfChain, usize),
     LoopCondition(Expr, Box<Stmt>),
     ForCondition(ForState),
     ForEachSource(ForBinding, Box<Stmt>, bool, usize),
@@ -162,13 +215,18 @@ enum Action {
         items: Arc<Vec<Expr>>,
         index: usize,
         values: Vec<Value>,
-        holes: BTreeSet<usize>,
+        holes: ArrayHoles,
         next: Box<Action>,
     },
     TemplatePart {
         parts: Arc<Vec<Expr>>,
         index: usize,
         units: Vec<u16>,
+        next: Box<Action>,
+    },
+    Sequence {
+        sequence: crate::parser::Sequence,
+        index: usize,
         next: Box<Action>,
     },
     BinaryLeft {
@@ -179,6 +237,11 @@ enum Action {
     BinaryRight {
         operator: String,
         left: Value,
+        next: Box<Action>,
+    },
+    ConditionalChain {
+        chain: ConditionalChain,
+        cursor: usize,
         next: Box<Action>,
     },
     Conditional {
@@ -223,9 +286,11 @@ impl Action {
                 | Self::ArrayElement { next, .. }
                 | Self::TemplatePart { next, .. }
                 | Self::Assign { next, .. }
+                | Self::Sequence { next, .. }
                 | Self::BinaryLeft { next, .. }
                 | Self::BinaryRight { next, .. }
                 | Self::Conditional { next, .. }
+                | Self::ConditionalChain { next, .. }
                 | Self::Unary { next, .. }
                 | Self::Await(next)
                 | Self::Yield(next)
@@ -241,7 +306,7 @@ impl Action {
             depth += 1;
         }
     }
-    fn trace(&self, values: &mut Vec<Value>, scopes: &mut Vec<usize>) {
+    fn trace(&self, values: &mut impl Extend<Value>, scopes: &mut Vec<usize>) {
         let mut action = self;
         loop {
             match action {
@@ -258,7 +323,7 @@ impl Action {
                 Self::ReferenceKey { base, next, .. }
                 | Self::MemberKey { base, next }
                 | Self::CallMemberKey { base, next, .. } => {
-                    values.push(base.clone());
+                    values.extend([base.clone()]);
                     action = next;
                 }
                 Self::ReferenceBase { next, .. }
@@ -285,18 +350,20 @@ impl Action {
                 }
                 Self::TemplatePart { next, .. } => action = next,
                 Self::BinaryRight { left, next, .. } => {
-                    values.push(left.clone());
+                    values.extend([left.clone()]);
                     action = next;
                 }
-                Self::BinaryLeft { next, .. }
+                Self::Sequence { next, .. }
+                | Self::BinaryLeft { next, .. }
                 | Self::Conditional { next, .. }
+                | Self::ConditionalChain { next, .. }
                 | Self::Unary { next, .. }
                 | Self::Await(next)
                 | Self::Yield(next)
                 | Self::AsyncYieldReady(next)
                 | Self::DelegateStart(next) => action = next,
                 Self::DelegateResume { state, next } => {
-                    values.push(state.source.clone());
+                    values.extend([state.source.clone()]);
                     state.iterator.trace_values(values);
                     values.extend(state.last_result.iter().cloned());
                     action = next;
@@ -305,7 +372,7 @@ impl Action {
                 | Self::AsyncDelegateResult { state, next, .. }
                 | Self::AsyncDelegateMissingThrowClose { state, next }
                 | Self::AsyncDelegateReturnAbsent { state, next } => {
-                    values.push(state.source.clone());
+                    values.extend([state.source.clone()]);
                     state.iterator.trace_values(values);
                     action = next;
                 }
@@ -358,8 +425,8 @@ struct AsyncOfState {
     count: usize,
 }
 impl AsyncOfState {
-    fn trace(&self, values: &mut Vec<Value>) {
-        values.push(self.source.clone());
+    fn trace(&self, values: &mut impl Extend<Value>) {
+        values.extend([self.source.clone()]);
         self.iterator.trace_values(values);
     }
 }
@@ -390,9 +457,9 @@ enum Completion {
     Continue(Option<String>),
 }
 impl Completion {
-    fn trace(&self, values: &mut Vec<Value>) {
+    fn trace(&self, values: &mut impl Extend<Value>) {
         match self {
-            Self::Return(value) => values.push(value.clone()),
+            Self::Return(value) => values.extend([value.clone()]),
             Self::Throw(error) => values.extend(error.thrown.iter().cloned()),
             Self::Break(_) | Self::Continue(_) => {}
         }
@@ -401,7 +468,9 @@ impl Completion {
 impl Frame {
     fn depth(&self) -> usize {
         match self {
-            Self::Evaluate(_, _, action) | Self::Apply(_, _, action) => 1 + action.depth(),
+            Self::Evaluate(_, _, action)
+            | Self::ConditionalChain(_, _, _, action)
+            | Self::Apply(_, _, action) => 1 + action.depth(),
             _ => 1,
         }
     }
@@ -478,6 +547,13 @@ impl Runtime {
             .machines
             .remove(&owner)
             .ok_or_else(|| JsError::runtime("Missing continuation"))?;
+        let epoch = match self.enter_execution_epoch() {
+            Ok(epoch) => epoch,
+            Err(error) => {
+                self.resumables.machines.insert(owner, machine);
+                return Err(error);
+            }
+        };
         self.resumables.running.insert(owner);
         let strict = self.strict;
         self.strict = machine.strict;
@@ -490,6 +566,7 @@ impl Runtime {
         ) {
             self.resumables.machines.insert(owner, machine);
         }
+        self.leave_execution_epoch(epoch);
         result
     }
     fn run_continuation(
@@ -604,8 +681,23 @@ impl Runtime {
         host: &mut impl Host,
     ) -> Result<Option<Outcome>, JsError> {
         match frame {
+            Frame::IfChain(chain, index, scope) => {
+                return self.continuation_if_chain(machine, chain, index, scope, host);
+            }
             Frame::Evaluate(expression, scope, action) => {
                 return self.continuation_expression(machine, &expression, scope, action, host);
+            }
+            Frame::ConditionalChain(chain, cursor, scope, action) => {
+                // This cursor occupies exactly the old Evaluate(no) phase:
+                // dispatch tick above, expression entry tick and guard here.
+                self.tick()?;
+                if machine.depth() + 1 + action.depth() > LIMIT {
+                    return Err(JsError::resource(
+                        "Continuation expression depth limit exceeded",
+                    ));
+                }
+                Self::schedule_conditional_chain(machine, chain, cursor, scope, action)?;
+                return Ok(None);
             }
             Frame::Apply(value, scope, action) => {
                 return self.continuation_action(machine, scope, action, value, host);
@@ -823,6 +915,9 @@ impl Runtime {
                         Action::Branch(yes, no),
                         host,
                     );
+                }
+                Stmt::IfChain(chain) => {
+                    return self.continuation_if_chain(machine, chain, 0, scope, host);
                 }
                 Stmt::While(condition, body) => {
                     machine.push(Frame::Loop(condition, body, scope))?
@@ -1165,6 +1260,7 @@ impl Runtime {
             | Frame::Sequence(..)
             | Frame::Statement(..)
             | Frame::Evaluate(..)
+            | Frame::ConditionalChain(..)
             | Frame::Apply(..)
             | Frame::Variables(..)
             | Frame::ForStart(..)
@@ -1172,9 +1268,28 @@ impl Runtime {
             | Frame::ForEachReady(..)
             | Frame::AsyncOfNext(..)
             | Frame::OfNext(..)
+            | Frame::IfChain(..)
             | Frame::SwitchReady(..) => machine.abrupt = Some(completion),
         }
         Ok(None)
+    }
+    fn schedule_conditional_chain(
+        machine: &mut Machine,
+        chain: ConditionalChain,
+        cursor: usize,
+        scope: usize,
+        next: Action,
+    ) -> Result<(), JsError> {
+        let condition = chain.clauses_rev()[cursor].0.clone();
+        machine.push(Frame::Evaluate(
+            condition,
+            scope,
+            Action::ConditionalChain {
+                chain,
+                cursor,
+                next: Box::new(next),
+            },
+        ))
     }
     fn continuation_expression(
         &mut self,
@@ -1205,7 +1320,7 @@ impl Runtime {
                         items: Arc::new(items.clone()),
                         index: 0,
                         values: Vec::new(),
-                        holes: BTreeSet::new(),
+                        holes: ArrayHoles::new(),
                         next: Box::new(action),
                     },
                 )?;
@@ -1326,6 +1441,24 @@ impl Runtime {
                 }
                 return Ok(None);
             }
+            Expr::Sequence(sequence) => {
+                // Each removed ancestor entered the dispatch loop and then
+                // continuation_expression before any operand's effects.
+                for _ in 0..sequence.removed_binary_nodes() {
+                    self.tick()?;
+                    self.tick()?;
+                }
+                machine.push(Frame::Evaluate(
+                    sequence.items()[0].clone(),
+                    scope,
+                    Action::Sequence {
+                        sequence: sequence.clone(),
+                        index: 1,
+                        next: Box::new(action),
+                    },
+                ))?;
+                return Ok(None);
+            }
             Expr::Binary(operator, left, right) if resumable_binary(operator) => {
                 let action = Action::BinaryLeft {
                     operator: operator.clone(),
@@ -1333,6 +1466,16 @@ impl Runtime {
                     next: Box::new(action),
                 };
                 machine.push(Frame::Evaluate(*left.clone(), scope, action))?;
+                return Ok(None);
+            }
+            Expr::ConditionalChain(chain) => {
+                Self::schedule_conditional_chain(
+                    machine,
+                    chain.clone(),
+                    chain.clauses_rev().len() - 1,
+                    scope,
+                    action,
+                )?;
                 return Ok(None);
             }
             Expr::Conditional(condition, yes, no) => {
@@ -1395,6 +1538,9 @@ impl Runtime {
             machine.push(Frame::Evaluate(*right.clone(), scope, action))?;
             return Ok(None);
         }
+        // Explicit synchronous bridge: borrowed frames finish before applying
+        // the owned continuation. The runtime-wide work ledger and active GC
+        // barrier are shared, never reset by resume, and no AST borrow suspends.
         let value = self.eval(expr, scope, host)?;
         machine.push(Frame::Apply(value, scope, action))?;
         Ok(None)
@@ -1473,6 +1619,8 @@ impl Runtime {
         host: &mut impl Host,
     ) -> Result<(), JsError> {
         if let Some(first) = arguments.first() {
+            let values =
+                self.value_buffer(arguments.len().min(crate::call_storage::MAX_CALL_ARGUMENTS))?;
             machine.push(Frame::Evaluate(
                 first.clone(),
                 scope,
@@ -1480,7 +1628,7 @@ impl Runtime {
                     target,
                     arguments,
                     index: 0,
-                    values: Vec::new(),
+                    values,
                     next: Box::new(next),
                 },
             ))?;
@@ -1499,10 +1647,11 @@ impl Runtime {
     ) -> Result<Value, JsError> {
         // The action has left the machine while user code executes. Preserve
         // both the captured target and the enclosing expression's temporaries.
-        let mut retained = arguments.clone();
-        target.trace_values(&mut retained);
-        next.trace(&mut retained, &mut Vec::new());
-        let roots = self.continuation_retain_values(retained)?;
+        let roots = self.continuation_roots(|retained| {
+            retained.extend(arguments.iter().cloned());
+            target.trace_values(retained);
+            next.trace(retained, &mut Vec::new());
+        })?;
         let result = self.invoke_prepared_call(target, arguments, host);
         for root in roots {
             self.release_value(root);
@@ -1527,10 +1676,11 @@ impl Runtime {
                 next,
             } => {
                 let result = if matches!(items.get(index), Some(Expr::Spread(_))) {
-                    let mut retained = values.clone();
-                    retained.push(value.clone());
-                    next.trace(&mut retained, &mut Vec::new());
-                    let roots = self.continuation_retain_values(retained)?;
+                    let roots = self.continuation_roots(|retained| {
+                        retained.extend(values.iter().cloned());
+                        retained.extend([value.clone()]);
+                        next.trace(retained, &mut Vec::new());
+                    })?;
                     let result = self.literal_array_spread(&mut values, value, host);
                     for root in roots {
                         self.release_value(root);
@@ -1564,9 +1714,10 @@ impl Runtime {
                 mut units,
                 next,
             } => {
-                let mut retained = vec![value.clone()];
-                next.trace(&mut retained, &mut Vec::new());
-                let roots = self.continuation_retain_values(retained)?;
+                let roots = self.continuation_roots(|retained| {
+                    retained.extend([value.clone()]);
+                    next.trace(retained, &mut Vec::new());
+                })?;
                 // Coerce now, before the next interpolation's effects.
                 let result = self.literal_template_append(&mut units, value, host);
                 for root in roots {
@@ -1606,9 +1757,10 @@ impl Runtime {
                 operation,
                 next,
             } => {
-                let mut retained = vec![base.clone(), value.clone()];
-                next.trace(&mut retained, &mut Vec::new());
-                let roots = self.continuation_retain_values(retained)?;
+                let roots = self.continuation_roots(|retained| {
+                    retained.extend([base.clone(), value.clone()]);
+                    next.trace(retained, &mut Vec::new());
+                })?;
                 let result = (|| {
                     // Evaluate the raw key first, but reject nullish bases
                     // before key coercion, GetValue or the assignment RHS.
@@ -1658,9 +1810,10 @@ impl Runtime {
                 return Ok(None);
             }
             Action::MemberKey { base, next } => {
-                let mut retained = vec![base.clone(), value.clone()];
-                next.trace(&mut retained, &mut Vec::new());
-                let roots = self.continuation_retain_values(retained)?;
+                let roots = self.continuation_roots(|retained| {
+                    retained.extend([base.clone(), value.clone()]);
+                    next.trace(retained, &mut Vec::new());
+                })?;
                 let result = self.read_member_values(base, value, host);
                 for root in roots {
                     self.release_value(root);
@@ -1689,9 +1842,10 @@ impl Runtime {
                 arguments,
                 next,
             } => {
-                let mut retained = vec![base.clone(), value.clone()];
-                next.trace(&mut retained, &mut Vec::new());
-                let roots = self.continuation_retain_values(retained)?;
+                let roots = self.continuation_roots(|retained| {
+                    retained.extend([base.clone(), value.clone()]);
+                    next.trace(retained, &mut Vec::new());
+                })?;
                 let result = self.prepare_member_call_values(base, value, host);
                 for root in roots {
                     self.release_value(root);
@@ -1722,9 +1876,7 @@ impl Runtime {
                 values.push(value);
                 let index = index + 1;
                 if let Some(argument) = arguments.get(index) {
-                    if values.len() >= 32 {
-                        return Err(JsError::resource("Call argument limit exceeded"));
-                    }
+                    self.reserve_argument_slot(&mut values)?;
                     machine.push(Frame::Evaluate(
                         argument.clone(),
                         scope,
@@ -1744,9 +1896,10 @@ impl Runtime {
             }
             Action::DelegateStart(next) => {
                 if machine.kind == FunctionKind::AsyncGenerator {
-                    let mut values = vec![value.clone()];
-                    next.trace(&mut values, &mut Vec::new());
-                    let roots = self.continuation_retain_values(values)?;
+                    let roots = self.continuation_roots(|retained| {
+                        retained.extend([value.clone()]);
+                        next.trace(retained, &mut Vec::new());
+                    })?;
                     let iterator = self.async_iterator(value.clone(), host);
                     for root in roots {
                         self.release_value(root);
@@ -1860,6 +2013,25 @@ impl Runtime {
             Action::AsyncYieldReady(next) => {
                 return self.continuation_suspend(machine, scope, *next, value, false);
             }
+            Action::Sequence {
+                sequence,
+                index,
+                next,
+            } => {
+                // Like BinaryLeft comma, discard the prior value. The final
+                // operand uses the original continuation without another Apply.
+                let operand = sequence.items()[index].clone();
+                let action = if index + 1 == sequence.items().len() {
+                    *next
+                } else {
+                    Action::Sequence {
+                        sequence,
+                        index: index + 1,
+                        next,
+                    }
+                };
+                machine.push(Frame::Evaluate(operand, scope, action))?;
+            }
             Action::BinaryLeft {
                 operator,
                 right,
@@ -1889,6 +2061,23 @@ impl Runtime {
                 let value = self.binary_value(&operator, left, value, host)?;
                 machine.push(Frame::Apply(value, scope, *next))?;
             }
+            Action::ConditionalChain {
+                chain,
+                cursor,
+                next,
+            } => {
+                if value.truthy() {
+                    machine.push(Frame::Evaluate(
+                        chain.clauses_rev()[cursor].1.clone(),
+                        scope,
+                        *next,
+                    ))?;
+                } else if cursor > 0 {
+                    machine.push(Frame::ConditionalChain(chain, cursor - 1, scope, *next))?;
+                } else {
+                    machine.push(Frame::Evaluate(chain.fallback().clone(), scope, *next))?;
+                }
+            }
             Action::Conditional { yes, no, next } => {
                 let branch = if value.truthy() { yes } else { no };
                 machine.push(Frame::Evaluate(*branch, scope, *next))?;
@@ -1903,11 +2092,12 @@ impl Runtime {
                 operator,
                 next,
             } => {
-                let mut retained = vec![value.clone()];
-                place.trace_values(&mut retained, &mut Vec::new());
-                retained.extend(previous.iter().cloned());
-                next.trace(&mut retained, &mut Vec::new());
-                let roots = self.continuation_retain_values(retained)?;
+                let roots = self.continuation_roots(|retained| {
+                    retained.extend([value.clone()]);
+                    place.trace_values(retained, &mut Vec::new());
+                    retained.extend(previous.iter().cloned());
+                    next.trace(retained, &mut Vec::new());
+                })?;
                 let result = (|| {
                     let value = match previous {
                         Some(left) => {
@@ -1985,6 +2175,16 @@ impl Runtime {
                     machine.push(Frame::Statement(*body, scope))?;
                 }
             }
+            Action::IfChain(chain, index) => {
+                if value.truthy() {
+                    machine.push(Frame::Statement(chain.clauses()[index].1.clone(), scope))?;
+                } else if index + 1 < chain.clauses().len() {
+                    // Exactly the frame/loop tick of the legacy nested else-if.
+                    machine.push(Frame::IfChain(chain, index + 1, scope))?;
+                } else if let Some(fallback) = chain.fallback() {
+                    machine.push(Frame::Statement(fallback.clone(), scope))?;
+                }
+            }
             Action::Branch(yes, no) => {
                 let next = if value.truthy() { Some(yes) } else { no };
                 if let Some(next) = next {
@@ -2018,37 +2218,31 @@ impl Runtime {
         next: &Action,
         value: &Value,
     ) -> Result<Vec<u64>, JsError> {
-        let mut values = vec![state.source.clone(), value.clone()];
-        state.iterator.trace_values(&mut values);
-        next.trace(&mut values, &mut Vec::new());
-        self.continuation_retain_values(values)
+        self.continuation_roots(|retained| {
+            retained.extend([state.source.clone(), value.clone()]);
+            state.iterator.trace_values(retained);
+            next.trace(retained, &mut Vec::new());
+        })
     }
-    fn continuation_retain_values(&mut self, values: Vec<Value>) -> Result<Vec<u64>, JsError> {
-        let mut roots = Vec::new();
-        let mut retained = BTreeSet::new();
-        for value in values {
-            // Strings, BigInts and other primitives are owned Rust values, not
-            // GC heap edges. A wide numeric literal needs no external tokens.
-            let id = match &value {
-                Value::Array(id) | Value::Object(id) | Value::Function(id) => *id,
-                _ => continue,
-            };
-            // Nested literal actions can contain thousands of references to
-            // one object. Each heap identity needs only one temporary root.
-            if !retained.insert(id) {
-                continue;
+    fn continuation_roots(
+        &mut self,
+        trace: impl FnOnce(&mut ContinuationRoots<'_>),
+    ) -> Result<Vec<u64>, JsError> {
+        let mut retained = ContinuationRoots {
+            runtime: self,
+            roots: Vec::new(),
+            retained: BTreeSet::new(),
+            error: None,
+        };
+        trace(&mut retained);
+        if let Some(error) = retained.error {
+            for root in retained.roots {
+                retained.runtime.release_value(root);
             }
-            match self.retain_value(value) {
-                Ok(root) => roots.push(root),
-                Err(error) => {
-                    for root in roots {
-                        self.release_value(root);
-                    }
-                    return Err(error);
-                }
-            }
+            Err(error)
+        } else {
+            Ok(retained.roots)
         }
-        Ok(roots)
     }
     fn continuation_async_delegate(
         &mut self,
@@ -2255,6 +2449,23 @@ impl Runtime {
         ));
         Ok(Some(Outcome::YieldResult(result)))
     }
+    fn continuation_if_chain(
+        &mut self,
+        machine: &mut Machine,
+        chain: IfChain,
+        index: usize,
+        scope: usize,
+        host: &mut impl Host,
+    ) -> Result<Option<Outcome>, JsError> {
+        // The cursor shares the immutable chain, never clones its remaining suffix.
+        self.continuation_expression(
+            machine,
+            &chain.clauses()[index].0,
+            scope,
+            Action::IfChain(chain.clone(), index),
+            host,
+        )
+    }
     fn continuation_suspend(
         &mut self,
         machine: &mut Machine,
@@ -2293,7 +2504,9 @@ impl Runtime {
                 completion.trace(&mut values);
             }
             match frame {
-                Frame::Evaluate(_, _, action) => action.trace(&mut values, &mut scopes),
+                Frame::Evaluate(_, _, action) | Frame::ConditionalChain(_, _, _, action) => {
+                    action.trace(&mut values, &mut scopes)
+                }
                 Frame::Apply(value, _, action) => {
                     values.push(value.clone());
                     action.trace(&mut values, &mut scopes);
@@ -2314,7 +2527,9 @@ impl Runtime {
             scopes.push(match frame {
                 Frame::Sequence(_, _, scope)
                 | Frame::Statement(_, scope)
+                | Frame::IfChain(_, _, scope)
                 | Frame::Evaluate(_, scope, _)
+                | Frame::ConditionalChain(_, _, scope, _)
                 | Frame::Apply(_, scope, _)
                 | Frame::Variables(_, _, _, scope)
                 | Frame::Loop(_, _, scope)
@@ -2375,6 +2590,42 @@ pub(super) fn validate_body(body: &[Stmt], kind: FunctionKind) -> Result<(), JsE
     }
     Ok(())
 }
+// DFS holds at most three pending siblings per active expression level:
+// a chain's fallback, next-clause cursor and yes branch. Other nodes need at
+// most two. Slice cursors keep width independent of storage. The extra slots
+// include the root and children at LIMIT + 1, whose step fails before expansion.
+const VALIDATION_WORK_SLOTS: usize = 3 * (LIMIT + 1) + 2;
+enum ValidationWork<'a> {
+    Expression(&'a Expr, bool, usize),
+    Expressions(&'a [Expr], bool, usize, bool),
+    Objects(&'a [(String, Expr)], usize),
+    Class(&'a ClassDefinition, usize),
+    ClassMembers(&'a [crate::parser::ClassMember], usize),
+    ConditionalClauses(&'a [(Expr, Expr)], bool, usize, bool),
+}
+struct ValidationStack<'a>(Vec<ValidationWork<'a>>);
+impl<'a> ValidationStack<'a> {
+    fn new() -> Result<Self, JsError> {
+        let mut work = Vec::new();
+        work.try_reserve_exact(VALIDATION_WORK_SLOTS)
+            .map_err(|_| JsError::resource("Continuation validation storage unavailable"))?;
+        if work.capacity() > VALIDATION_WORK_SLOTS {
+            return Err(JsError::resource(
+                "Continuation validation storage limit exceeded",
+            ));
+        }
+        Ok(Self(work))
+    }
+    fn push(&mut self, work: ValidationWork<'a>) -> Result<(), JsError> {
+        if self.0.len() == VALIDATION_WORK_SLOTS {
+            return Err(JsError::resource(
+                "Continuation validation storage limit exceeded",
+            ));
+        }
+        self.0.push(work);
+        Ok(())
+    }
+}
 struct Validator {
     kind: FunctionKind,
     work: usize,
@@ -2388,133 +2639,191 @@ impl Validator {
         Ok(())
     }
     fn expression(&mut self, expr: &Expr, direct: bool, depth: usize) -> Result<(), JsError> {
-        self.step(depth)?;
-        let d = depth + 1;
-        match expr {
-            Expr::Await(value) => {
-                if !direct
-                    || !matches!(
-                        self.kind,
-                        FunctionKind::Async | FunctionKind::AsyncGenerator
-                    )
-                {
-                    return Err(unsupported());
-                }
-                self.expression(value, true, d)?;
-            }
-            Expr::YieldDelegate(value) => {
-                if !direct
-                    || !matches!(
-                        self.kind,
-                        FunctionKind::Generator | FunctionKind::AsyncGenerator
-                    )
-                {
-                    return Err(unsupported());
-                }
-                self.expression(value, true, d)?;
-            }
-            Expr::Yield(value) => {
-                if !direct
-                    || !matches!(
-                        self.kind,
-                        FunctionKind::Generator | FunctionKind::AsyncGenerator
-                    )
-                {
-                    return Err(unsupported());
-                }
-                if let Some(value) = value {
-                    self.expression(value, true, d)?;
-                }
-            }
-            Expr::Function { .. } => {}
-            Expr::Class(class) => self.class(class, d)?,
-            Expr::Array(values) => {
-                for value in values {
-                    if let Expr::Spread(operand) = value {
-                        self.step(d)?;
-                        self.expression(operand, direct, d + 1)?;
-                    } else {
-                        self.expression(value, direct, d)?;
-                    }
-                }
-            }
-            Expr::Template(values) => {
-                for value in values {
-                    self.expression(value, direct, d)?;
-                }
-            }
-            Expr::Object(values) => {
-                for (_, value) in values {
-                    self.expression(value, false, d)?;
-                }
-            }
-            Expr::Assign(operator, target, right) => {
-                let allowed = direct && resumable_assignment(operator, target);
-                self.expression(target, allowed && ordinary_member_reference(target), d)?;
-                self.expression(right, allowed, d)?;
-            }
-            Expr::Binary(operator, a, b) => {
-                let allowed = direct && resumable_binary(operator);
-                self.expression(a, allowed, d)?;
-                self.expression(b, allowed, d)?;
-            }
-            Expr::Member(a, b) => {
-                let allow = direct && !matches!(a.as_ref(), Expr::Super);
-                self.expression(a, allow, d)?;
-                self.expression(b, allow, d)?;
-            }
-            Expr::ImportCall { specifier, options } => {
-                self.expression(specifier, false, d)?;
-                if let Some(options) = options {
-                    self.expression(options, false, d)?;
-                }
-            }
-            Expr::Call(callee, args) => {
-                let allow = direct && resumable_call(callee, args);
-                self.expression(callee, allow, d)?;
-                for arg in args {
-                    self.expression(arg, allow, d)?;
-                }
-            }
-            Expr::Construct(callee, args) => {
-                self.expression(callee, false, d)?;
-                for arg in args {
-                    self.expression(arg, false, d)?;
-                }
-            }
-            Expr::Unary(operator, value) => {
-                let allow = resumable_unary(operator)
-                    || (operator == "delete" && ordinary_member_reference(value));
-                self.expression(value, direct && allow, d)?
-            }
-            Expr::Update(value, _, _) => {
-                self.expression(value, direct && ordinary_member_reference(value), d)?
-            }
-            Expr::Spread(value) | Expr::PrivateMember(value, _) => {
-                self.expression(value, false, d)?
-            }
-            Expr::Conditional(a, b, c) => {
-                self.expression(a, direct, d)?;
-                self.expression(b, direct, d)?;
-                self.expression(c, direct, d)?;
-            }
-            Expr::ImportMeta
-            | Expr::Literal(_)
-            | Expr::RegExp(..)
-            | Expr::Name(_)
-            | Expr::Hole
-            | Expr::Super => {}
-        }
-        Ok(())
+        self.walk_expression(ValidationWork::Expression(expr, direct, depth))
     }
     fn class(&mut self, class: &ClassDefinition, depth: usize) -> Result<(), JsError> {
-        self.step(depth)?;
-        if let Some(base) = &class.base {
-            self.expression(base, false, depth + 1)?;
-        }
-        for member in &class.members {
-            if let Some(value) = &member.value {
-                self.expression(value, false, depth + 1)?;
+        self.walk_expression(ValidationWork::Class(class, depth))
+    }
+    #[inline(never)]
+    fn walk_expression(&mut self, root: ValidationWork<'_>) -> Result<(), JsError> {
+        use ValidationWork as W;
+        let mut work = ValidationStack::new()?;
+        work.push(root)?;
+        while let Some(item) = work.0.pop() {
+            match item {
+                W::Expressions(values, direct, depth, array) => {
+                    if let Some((value, rest)) = values.split_first() {
+                        if !rest.is_empty() {
+                            work.push(W::Expressions(rest, direct, depth, array))?;
+                        }
+                        if array && let Expr::Spread(operand) = value {
+                            self.step(depth)?;
+                            work.push(W::Expression(operand, direct, depth + 1))?;
+                        } else {
+                            work.push(W::Expression(value, direct, depth))?;
+                        }
+                    }
+                }
+                W::Objects(values, depth) => {
+                    if let Some(((_, value), rest)) = values.split_first() {
+                        if !rest.is_empty() {
+                            work.push(W::Objects(rest, depth))?;
+                        }
+                        work.push(W::Expression(value, false, depth))?;
+                    }
+                }
+                W::Class(class, depth) => {
+                    self.step(depth)?;
+                    work.push(W::ClassMembers(&class.members, depth + 1))?;
+                    if let Some(base) = &class.base {
+                        work.push(W::Expression(base, false, depth + 1))?;
+                    }
+                }
+                W::ClassMembers(members, depth) => {
+                    if let Some((member, rest)) = members.split_first() {
+                        if !rest.is_empty() {
+                            work.push(W::ClassMembers(rest, depth))?;
+                        }
+                        if let Some(value) = &member.value {
+                            work.push(W::Expression(value, false, depth))?;
+                        }
+                    }
+                }
+                W::ConditionalClauses(clauses, direct, depth, charge) => {
+                    if let Some(((condition, yes), rest)) = clauses.split_last() {
+                        if charge {
+                            self.step(depth)?;
+                        }
+                        if !rest.is_empty() {
+                            work.push(W::ConditionalClauses(rest, direct, depth, true))?;
+                        }
+                        work.push(W::Expression(yes, direct, depth + 1))?;
+                        work.push(W::Expression(condition, direct, depth + 1))?;
+                    }
+                }
+                W::Expression(expr, direct, depth) => {
+                    self.step(depth)?;
+                    let d = depth + 1;
+                    match expr {
+                        Expr::Await(value) => {
+                            if !direct
+                                || !matches!(
+                                    self.kind,
+                                    FunctionKind::Async | FunctionKind::AsyncGenerator
+                                )
+                            {
+                                return Err(unsupported());
+                            }
+                            work.push(W::Expression(value, true, d))?;
+                        }
+                        Expr::YieldDelegate(value) => {
+                            if !direct
+                                || !matches!(
+                                    self.kind,
+                                    FunctionKind::Generator | FunctionKind::AsyncGenerator
+                                )
+                            {
+                                return Err(unsupported());
+                            }
+                            work.push(W::Expression(value, true, d))?;
+                        }
+                        Expr::Yield(value) => {
+                            if !direct
+                                || !matches!(
+                                    self.kind,
+                                    FunctionKind::Generator | FunctionKind::AsyncGenerator
+                                )
+                            {
+                                return Err(unsupported());
+                            }
+                            if let Some(value) = value {
+                                work.push(W::Expression(value, true, d))?;
+                            }
+                        }
+                        Expr::Function { .. } => {}
+                        Expr::Class(class) => work.push(W::Class(class, d))?,
+                        Expr::Array(values) => {
+                            work.push(W::Expressions(values, direct, d, true))?
+                        }
+                        Expr::Template(values) => {
+                            work.push(W::Expressions(values, direct, d, false))?
+                        }
+                        Expr::Object(values) => work.push(W::Objects(values, d))?,
+                        Expr::Assign(operator, target, right) => {
+                            let allowed = direct && resumable_assignment(operator, target);
+                            work.push(W::Expression(right, allowed, d))?;
+                            work.push(W::Expression(
+                                target,
+                                allowed && ordinary_member_reference(target),
+                                d,
+                            ))?;
+                        }
+                        Expr::Sequence(sequence) => {
+                            for _ in 0..sequence.removed_binary_nodes() {
+                                self.step(depth)?;
+                            }
+                            work.push(W::Expressions(sequence.items(), direct, d, false))?;
+                        }
+                        Expr::Binary(operator, a, b) => {
+                            let allowed = direct && resumable_binary(operator);
+                            work.push(W::Expression(b, allowed, d))?;
+                            work.push(W::Expression(a, allowed, d))?;
+                        }
+                        Expr::Member(a, b) => {
+                            let allowed = direct && !matches!(a.as_ref(), Expr::Super);
+                            work.push(W::Expression(b, allowed, d))?;
+                            work.push(W::Expression(a, allowed, d))?;
+                        }
+                        Expr::ImportCall { specifier, options } => {
+                            if let Some(options) = options {
+                                work.push(W::Expression(options, false, d))?;
+                            }
+                            work.push(W::Expression(specifier, false, d))?;
+                        }
+                        Expr::Call(callee, args) => {
+                            let allowed = direct && resumable_call(callee, args);
+                            work.push(W::Expressions(args, allowed, d, false))?;
+                            work.push(W::Expression(callee, allowed, d))?;
+                        }
+                        Expr::Construct(callee, args) => {
+                            work.push(W::Expressions(args, false, d, false))?;
+                            work.push(W::Expression(callee, false, d))?;
+                        }
+                        Expr::Unary(operator, value) => {
+                            let allowed = resumable_unary(operator)
+                                || (operator == "delete" && ordinary_member_reference(value));
+                            work.push(W::Expression(value, direct && allowed, d))?;
+                        }
+                        Expr::Update(value, _, _) => work.push(W::Expression(
+                            value,
+                            direct && ordinary_member_reference(value),
+                            d,
+                        ))?,
+                        Expr::Spread(value) | Expr::PrivateMember(value, _) => {
+                            work.push(W::Expression(value, false, d))?
+                        }
+                        Expr::ConditionalChain(chain) => {
+                            work.push(W::Expression(chain.fallback(), direct, d))?;
+                            work.push(W::ConditionalClauses(
+                                chain.clauses_rev(),
+                                direct,
+                                depth,
+                                false,
+                            ))?;
+                        }
+                        Expr::Conditional(a, b, c) => {
+                            work.push(W::Expression(c, direct, d))?;
+                            work.push(W::Expression(b, direct, d))?;
+                            work.push(W::Expression(a, direct, d))?;
+                        }
+                        Expr::ImportMeta
+                        | Expr::Literal(_)
+                        | Expr::RegExp(..)
+                        | Expr::Name(_)
+                        | Expr::Hole
+                        | Expr::Super => {}
+                    }
+                }
             }
         }
         Ok(())
@@ -2586,6 +2895,20 @@ impl Validator {
                 self.statement(yes, allow, d)?;
                 if let Some(no) = no {
                     self.statement(no, allow, d)?;
+                }
+            }
+            Stmt::IfChain(chain) => {
+                for (index, (condition, body)) in chain.clauses().iter().enumerate() {
+                    // Count the removed If nodes in source DFS order, but do not
+                    // charge artificial nesting depth for this flat sequence.
+                    if index != 0 {
+                        self.step(depth)?;
+                    }
+                    self.expression(condition, allow, d)?;
+                    self.statement(body, allow, d)?;
+                }
+                if let Some(fallback) = chain.fallback() {
+                    self.statement(fallback, allow, d)?;
                 }
             }
             Stmt::While(expr, body) | Stmt::DoWhile(body, expr) => {
@@ -3427,16 +3750,16 @@ mod tests {
     }
 
     #[test]
-    fn resumed_callee_argument_limit_keeps_first_32_effects_only() {
-        let arguments = vec!["n++"; 33].join(",");
+    fn resumed_callee_argument_limit_keeps_first_64_effects_only() {
+        let arguments = vec!["n++"; 65].join(",");
         let source = format!("function* f(){{let n=0;return (yield 1)({arguments});}}");
         assert_eq!(
             crate::parser::parse(&source).unwrap_err().kind,
             ErrorKind::Resource
         );
         // The parser rejects oversized calls. Construct an AST independently to
-        // keep exercising the runtime's defense and first-32 evaluation order.
-        let arguments = vec!["n++"; 32].join(",");
+        // keep exercising the runtime's defense and first-64 evaluation order.
+        let arguments = vec!["n++"; 64].join(",");
         let statements = crate::parser::parse(&format!(
             "function* f(){{let n=0;return (yield 1)({arguments});}}"
         ))
@@ -3455,7 +3778,7 @@ mod tests {
             .resumable_resume(0, ResumeInput::Normal(Value::Number(0.)), &mut Empty)
             .unwrap_err();
         assert_eq!(error.kind, ErrorKind::Resource);
-        assert_eq!(runtime.scopes[0].bindings["n"].value, Value::Number(32.));
+        assert_eq!(runtime.scopes[0].bindings["n"].value, Value::Number(64.));
     }
 
     #[test]
@@ -3589,7 +3912,7 @@ mod tests {
             2.,
         );
         let mut source = Vec::new();
-        let mut holes = BTreeSet::new();
+        let mut holes = ArrayHoles::new();
         runtime
             .literal_array_append(&mut source, &mut holes, Value::Number(4.), false)
             .unwrap();
@@ -5896,3 +6219,15 @@ mod tests {
         assert!(validate_body(body, FunctionKind::Async).is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "resumable_sequence_tests.rs"]
+mod sequence_tests;
+
+#[cfg(test)]
+#[path = "resumable_if_chain_tests.rs"]
+mod if_chain_tests;
+
+#[cfg(test)]
+#[path = "resumable_conditional_chain_tests.rs"]
+mod conditional_chain_tests;

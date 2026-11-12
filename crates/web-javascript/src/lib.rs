@@ -1,11 +1,16 @@
 //! Original, bounded JavaScript interpreter for Noir's documented language subset.
 //! The host contract exposes values and calls only; this crate has no I/O APIs.
+mod array_for_each;
 mod array_from;
 mod array_methods;
+mod array_storage;
+mod numeric_record;
+use array_storage::{ArrayHoles, MAX_ARRAY_LENGTH, MAX_ARRAY_SLOTS};
 mod async_generators;
 mod async_iteration;
 mod bigint;
 pub use bigint::BigInt;
+mod call_storage;
 mod callables;
 mod class_runtime;
 mod coercion;
@@ -14,6 +19,7 @@ mod descriptors;
 mod dynamic_code;
 mod exception_diagnostics;
 pub use exception_diagnostics::ExceptionDiagnostic;
+mod evaluation;
 mod finalization_registry;
 mod gc;
 mod globals;
@@ -32,6 +38,7 @@ mod performance;
 mod prepared_call;
 mod promises;
 mod properties;
+mod property_budgets;
 mod reflect_api;
 mod reflection;
 mod regexp;
@@ -40,8 +47,10 @@ mod resumable;
 mod resumable_functions;
 mod runtime_support;
 mod scripts;
+mod statements;
 mod stdlib;
 mod strict_validation;
+mod string_storage;
 mod strings;
 mod wasm;
 mod weak_collections;
@@ -203,6 +212,14 @@ impl fmt::Display for JsError {
 impl std::error::Error for JsError {}
 
 pub trait Host {
+    /// Opt-in data-only stringifier for an immutable host interface contract.
+    /// None preserves rejection of host exotic coercion. This must not call
+    /// arbitrary script properties; all hints use the same fallback string.
+    /// The VM validates and charges the returned UTF-8 string normally.
+    fn stringifier(&mut self, _object: u64) -> Result<Option<String>, JsError> {
+        Ok(None)
+    }
+
     /// Supplies fresh host entropy. The VM never opens files or calls OS RNGs.
     /// Hosts must not rewind this source when a JavaScript transaction rolls back.
     fn random_u64(&mut self) -> Result<u64, JsError> {
@@ -347,6 +364,9 @@ struct Function {
     scope: usize,
     arrow: bool,
     lexical_this: Value,
+    // Internal [[Prototype]], distinct from the public "prototype" property.
+    // None retains the intrinsic/class default; Some(Null) ends inheritance.
+    internal_prototype: Option<Value>,
     properties: BTreeMap<String, Value>,
     strict: bool,
     parameters: Option<Arc<Vec<parser::Parameter>>>,
@@ -376,7 +396,7 @@ enum Heap {
     Object(Object),
     Function(Function),
 }
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Runtime {
     limits: Limits,
     remaining: u64,
@@ -384,7 +404,10 @@ pub struct Runtime {
     scopes: Vec<Scope>,
     heap: Vec<Heap>,
     call_depth: usize,
+    // Native dispatcher/reentry depth, NOT expression ancestor count.
     eval_depth: usize,
+    sync_execution: evaluation::storage::SyncExecution,
+    statement_depth: usize,
     conversion_depth: usize,
     binding_count: usize,
     global_properties: Option<usize>,
@@ -394,7 +417,7 @@ pub struct Runtime {
     regexp_pattern_bytes: usize,
     regexp_work: usize,
     array_properties: BTreeMap<usize, BTreeMap<String, Value>>,
-    array_holes: BTreeMap<usize, BTreeSet<usize>>,
+    array_holes: BTreeMap<usize, ArrayHoles>,
     array_prototype: Option<usize>,
     array_non_enumerable: BTreeMap<usize, BTreeSet<String>>,
     array_slots: usize,
@@ -413,6 +436,7 @@ pub struct Runtime {
     free_heap: Vec<usize>,
     free_scopes: Vec<usize>,
     property_order: BTreeMap<usize, Vec<String>>,
+    property_budget: property_budgets::PropertyBudget,
     symbol_properties: BTreeMap<usize, BTreeMap<u64, Value>>,
     symbol_metadata: BTreeMap<usize, BTreeMap<u64, descriptors::PropertyMetadata>>,
     symbol_order: BTreeMap<usize, Vec<u64>>,
@@ -427,6 +451,71 @@ pub struct Runtime {
     resumables: resumable::ResumableState,
     resumable_functions: resumable_functions::ResumableFunctions,
     async_generators: async_generators::AsyncGenerators,
+}
+
+/// Idle clones are independent VMs. An active clone is a snapshot only: it
+/// preserves language context for rollback but cannot execute or collect.
+/// Borrowed Rust activations and their live reservations are never copied.
+/// Transactional rollback preserves the original runtime's actual activations.
+impl Clone for Runtime {
+    fn clone(&self) -> Self {
+        let mut snapshot = Self {
+            limits: self.limits,
+            remaining: self.remaining,
+            string_bytes: self.string_bytes,
+            scopes: self.scopes.clone(),
+            heap: self.heap.clone(),
+            call_depth: 0,
+            eval_depth: 0,
+            sync_execution: self.sync_execution.clone(),
+            statement_depth: 0,
+            conversion_depth: 0,
+            binding_count: self.binding_count,
+            global_properties: self.global_properties,
+            global_object_handle: self.global_object_handle,
+            global_declaration_deletable: self.global_declaration_deletable,
+            regexp_count: self.regexp_count,
+            regexp_pattern_bytes: self.regexp_pattern_bytes,
+            regexp_work: self.regexp_work,
+            array_properties: self.array_properties.clone(),
+            array_holes: self.array_holes.clone(),
+            array_prototype: self.array_prototype,
+            array_non_enumerable: self.array_non_enumerable.clone(),
+            array_slots: self.array_slots,
+            json_namespace: self.json_namespace,
+            property_metadata: self.property_metadata.clone(),
+            deleted_synthetics: self.deleted_synthetics.clone(),
+            dynamic_depth: 0,
+            nested_script_depth: 0,
+            dynamic_source_bytes: self.dynamic_source_bytes,
+            bound_functions: self.bound_functions.clone(),
+            stdlib: self.stdlib.clone(),
+            wasm: self.wasm.clone(),
+            crypto: self.crypto.clone(),
+            language: self.language.clone(),
+            strict: self.strict,
+            free_heap: self.free_heap.clone(),
+            free_scopes: self.free_scopes.clone(),
+            property_order: self.property_order.clone(),
+            property_budget: self.property_budget.clone(),
+            symbol_properties: self.symbol_properties.clone(),
+            symbol_metadata: self.symbol_metadata.clone(),
+            symbol_order: self.symbol_order.clone(),
+            promises: self.promises.clone(),
+            weak_refs: self.weak_refs.clone(),
+            weak_collections: self.weak_collections.clone(),
+            finalization_registries: self.finalization_registries.clone(),
+            gc_roots: self.gc_roots.clone(),
+            next_gc_root: self.next_gc_root,
+            reflection: self.reflection.clone(),
+            modules: self.modules.clone(),
+            resumables: self.resumables.clone(),
+            resumable_functions: self.resumable_functions.clone(),
+            async_generators: self.async_generators.clone(),
+        };
+        self.sync_capture_snapshot(&mut snapshot);
+        snapshot
+    }
 }
 #[derive(Debug)]
 enum Flow {
@@ -454,6 +543,7 @@ impl Default for Runtime {
 impl Runtime {
     pub fn new(mut limits: Limits) -> Self {
         limits.call_depth = limits.call_depth.min(MAX_CALL_DEPTH);
+        let sync_execution = evaluation::storage::SyncExecution::new(limits.instructions);
         Self {
             remaining: limits.instructions,
             limits,
@@ -466,6 +556,8 @@ impl Runtime {
             heap: vec![],
             call_depth: 0,
             eval_depth: 0,
+            sync_execution,
+            statement_depth: 0,
             conversion_depth: 0,
             binding_count: 0,
             global_properties: None,
@@ -494,6 +586,7 @@ impl Runtime {
             free_heap: Vec::new(),
             free_scopes: Vec::new(),
             property_order: BTreeMap::new(),
+            property_budget: property_budgets::PropertyBudget::default(),
             symbol_properties: BTreeMap::new(),
             symbol_metadata: BTreeMap::new(),
             symbol_order: BTreeMap::new(),
@@ -526,7 +619,13 @@ impl Runtime {
         args: Vec<Value>,
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
-        let mut roots = args.clone();
+        self.ensure_executable()?;
+        call_storage::check_arguments(args.len())?;
+        // External buffers enter VM ownership here; internal forwards only move
+        // buffers already reserved by their builders.
+        self.charge_array_slots(args.capacity())?;
+        let mut roots = self.value_buffer(args.len() + 1)?;
+        roots.extend_from_slice(&args);
         roots.push(callback.clone());
         self.collect_garbage(&roots, host)?;
         let result = self.call(callback, args, Value::Undefined, host);
@@ -546,7 +645,11 @@ impl Runtime {
         this: Value,
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
-        let mut roots = args.clone();
+        self.ensure_executable()?;
+        call_storage::check_arguments(args.len())?;
+        self.charge_array_slots(args.capacity())?;
+        let mut roots = self.value_buffer(args.len() + 2)?;
+        roots.extend_from_slice(&args);
         roots.push(callback.clone());
         roots.push(this.clone());
         self.collect_garbage(&roots, host)?;
@@ -562,11 +665,42 @@ impl Runtime {
     }
     /// Restore globals/heap after a failed transaction while preserving consumed work.
     pub fn rollback_to(&mut self, mut previous: Self) {
+        // Active snapshots are valid only inside the same originating native
+        // activation. Restoring foreign or ended context would invalidate live
+        // Values. The void API fails closed without replacing the current heap.
+        if !self.sync_snapshot_compatible(&previous) {
+            self.sync_execution.snapshot_only = true;
+            return;
+        }
         previous.remaining = previous.remaining.min(self.remaining);
+        previous.array_slots = previous.array_slots.max(self.array_slots);
+        previous.string_bytes = previous.string_bytes.max(self.string_bytes);
         previous.dynamic_source_bytes =
             previous.dynamic_source_bytes.max(self.dynamic_source_bytes);
+        previous.property_budget.preserve(&self.property_budget);
         previous.wasm_preserve_budgets(self);
         previous.crypto_preserve_budgets(self);
+        // Snapshot clones own no frames. Keep the actual ancestral leases and
+        // native activations, after the failed child dispatcher has torn down.
+        // Replacing the transaction never refunds scheduler work or creates a
+        // second owner for capacity still retained by an outer Rust dispatcher.
+        let work = previous
+            .sync_execution
+            .work_remaining
+            .min(self.sync_execution.work_remaining);
+        std::mem::swap(&mut previous.sync_execution, &mut self.sync_execution);
+        previous.sync_execution.work_remaining = work;
+        previous.call_depth = self.call_depth;
+        previous.eval_depth = self.eval_depth;
+        previous.statement_depth = self.statement_depth;
+        previous.conversion_depth = self.conversion_depth;
+        previous.dynamic_depth = self.dynamic_depth;
+        previous.nested_script_depth = self.nested_script_depth;
+        debug_assert_eq!(
+            previous.sync_execution.live_bytes,
+            previous.sync_execution.live_slots
+                * std::mem::size_of::<evaluation::sync_frames::SyncFrame<'static>>()
+        );
         *self = previous;
     }
     pub fn global_value(&self, name: &str) -> Option<Value> {
@@ -594,6 +728,7 @@ impl Runtime {
         })
     }
     fn tick(&mut self) -> Result<(), JsError> {
+        self.ensure_executable()?;
         self.remaining = self
             .remaining
             .checked_sub(1)
@@ -642,6 +777,9 @@ impl Runtime {
         if let Heap::Array(values) = &object {
             self.charge_array_slots(values.len())?;
         }
+        if let Heap::Function(function) = &object {
+            self.reserve_property_map(&function.properties)?;
+        }
         self.allocate_reserved(object)
     }
     /// Store an object whose array slots (if any) have already been charged.
@@ -661,9 +799,16 @@ impl Runtime {
         Ok(id)
     }
     fn check_array_slots(&self, additional: usize) -> Result<(), JsError> {
-        if additional > 4096 || self.array_slots.saturating_add(additional) > 65_536 {
+        if additional > MAX_ARRAY_LENGTH
+            || self.array_slots.saturating_add(additional) > MAX_ARRAY_SLOTS
+        {
             return Err(JsError::resource(
                 "JavaScript aggregate array slot budget exceeded",
+            ));
+        }
+        if self.remaining < additional as u64 {
+            return Err(JsError::resource(
+                "Array allocation instruction budget exceeded",
             ));
         }
         Ok(())
@@ -834,6 +979,8 @@ impl Runtime {
                 "Identifier {name} already declared"
             )));
         }
+        self.charge_string(name.len())?;
+        self.string_copy_work(name.len())?;
         self.scopes[scope].bindings.insert(
             name.into(),
             Binding {
@@ -854,131 +1001,78 @@ impl Runtime {
         scope: usize,
         host: &mut impl Host,
     ) -> Result<(), JsError> {
-        for statement in statements {
+        // Reverse pushes preserve the old recursive, source-ordered DFS without
+        // retaining a large native frame for every nested statement.
+        let mut pending = Vec::new();
+        statements::push_hoist_statements(&mut pending, statements)?;
+        while let Some(statement) = pending.pop() {
             self.tick()?;
             match statement {
                 Stmt::PatternVariables(Declaration::Var, values) => {
                     for (pattern, _) in values {
                         let mut names = Vec::new();
                         pattern.names(&mut names);
-                        self.collect_vars(
-                            &[Stmt::Variables(
-                                Declaration::Var,
-                                names.into_iter().map(|name| (name, None)).collect(),
-                            )],
-                            scope,
-                            host,
-                        )?;
+                        // The old traversal visited a synthetic Variables node.
+                        self.tick()?;
+                        self.hoist_var_names(names.iter().map(String::as_str), scope, host)?;
                     }
                 }
                 Stmt::Variables(Declaration::Var, values) => {
-                    for (name, _) in values {
-                        let target = self.function_scope(scope);
-                        if target == 0
-                            && host.global_object().is_some()
-                            && intrinsic_global(name).is_some()
-                            && !self.global_deleted(name)
-                        {
-                            self.materialize_global_property(name, host)?;
-                        }
-                        let new = !self.scopes[target].bindings.contains_key(name);
-                        if new {
-                            self.declare(target, name, true, true)?;
-                        }
-                        if target == 0 {
-                            if !new && !self.scopes[0].bindings[name].global_property {
-                                return Err(JsError::runtime(format!(
-                                    "Global lexical binding conflicts with var {name}"
-                                )));
-                            }
-                            // Namespace markers only recognize names; global var
-                            // bindings must retain the actual lazy namespace object.
-                            let initial = match self.global_own_property(name) {
-                                Some(value) => Some(value),
-                                None if self.global_deleted(name) => None,
-                                None if name == "crypto" => Some(self.crypto_namespace(host)?),
-                                None if name == "performance" => {
-                                    Some(self.performance_namespace(host)?)
-                                }
-                                None if name == "WebAssembly" => Some(self.wasm_namespace()?),
-                                None if name == "JSON" => Some(self.json_namespace()?),
-                                None if name == "Math" => Some(self.math_namespace()?),
-                                None if name == "Reflect" => Some(self.reflect_namespace()?),
-                                None => intrinsic_global(name).or_else(|| host.global(name)),
-                            };
-                            let binding = self.scopes[0].bindings.get_mut(name).unwrap();
-                            binding.global_property = true;
-                            if new {
-                                binding.global_configurable = self.global_declaration_deletable;
-                            }
-                            if new && let Some(value) = initial {
-                                binding.value = value;
-                            }
-                            if let Some(id) = self.global_properties
-                                && let Some(deleted) = self.deleted_synthetics.get_mut(&id)
-                            {
-                                deleted.remove(name);
-                            }
-                        }
-                    }
+                    self.hoist_var_names(
+                        values.iter().map(|(name, _)| name.as_str()),
+                        scope,
+                        host,
+                    )?;
                 }
-                Stmt::Block(body) => self.collect_vars(body, scope, host)?,
+                Stmt::Block(body) => statements::push_hoist_statements(&mut pending, body)?,
                 Stmt::If(_, yes, no) => {
-                    self.collect_vars(std::slice::from_ref(yes.as_ref()), scope, host)?;
                     if let Some(no) = no {
-                        self.collect_vars(std::slice::from_ref(no.as_ref()), scope, host)?;
+                        statements::push_hoist_statement(&mut pending, no)?;
                     }
+                    statements::push_hoist_statement(&mut pending, yes)?;
                 }
-                Stmt::While(_, body) => {
-                    self.collect_vars(std::slice::from_ref(body.as_ref()), scope, host)?
+                Stmt::IfChain(chain) => {
+                    statements::push_hoist_if_chain(&mut pending, chain)?;
                 }
-                Stmt::DoWhile(body, _) => {
-                    self.collect_vars(std::slice::from_ref(body.as_ref()), scope, host)?
-                }
-                Stmt::Label(_, body) => {
-                    self.collect_vars(std::slice::from_ref(body.as_ref()), scope, host)?
+                Stmt::While(_, body) | Stmt::DoWhile(body, _) | Stmt::Label(_, body) => {
+                    statements::push_hoist_statement(&mut pending, body)?;
                 }
                 Stmt::Try {
                     body,
                     catch,
                     finally,
                 } => {
-                    self.collect_vars(body, scope, host)?;
-                    if let Some((_, body)) = catch {
-                        self.collect_vars(body, scope, host)?;
-                    }
                     if let Some(body) = finally {
-                        self.collect_vars(body, scope, host)?;
+                        statements::push_hoist_statements(&mut pending, body)?;
                     }
+                    if let Some((_, body)) = catch {
+                        statements::push_hoist_statements(&mut pending, body)?;
+                    }
+                    statements::push_hoist_statements(&mut pending, body)?;
                 }
                 Stmt::Switch(_, clauses) => {
-                    for (_, body) in clauses {
-                        self.collect_vars(body, scope, host)?;
+                    for (_, body) in clauses.iter().rev() {
+                        statements::push_hoist_statements(&mut pending, body)?;
                     }
                 }
                 Stmt::For(init, _, _, body) => {
+                    statements::push_hoist_statement(&mut pending, body)?;
                     if let Some(init) = init {
-                        self.collect_vars(std::slice::from_ref(init.as_ref()), scope, host)?;
+                        statements::push_hoist_statement(&mut pending, init)?;
                     }
-                    self.collect_vars(std::slice::from_ref(body.as_ref()), scope, host)?;
                 }
                 Stmt::ForIn(binding, _, body)
                 | Stmt::ForOf(binding, _, body)
                 | Stmt::ForAwaitOf(binding, _, body) => {
                     if let ForBinding::Declaration(Declaration::Var, name) = binding {
-                        self.collect_vars(
-                            &[Stmt::Variables(
-                                Declaration::Var,
-                                vec![(name.clone(), None)],
-                            )],
-                            scope,
-                            host,
-                        )?;
+                        // Preserve the synthetic declaration's instruction tick.
+                        self.tick()?;
+                        self.hoist_var_names(std::iter::once(name.as_str()), scope, host)?;
                     }
                     if let ForBinding::Pattern(Declaration::Var, pattern) = binding {
                         self.declare_pattern(pattern, Declaration::Var, scope)?;
                     }
-                    self.collect_vars(std::slice::from_ref(body.as_ref()), scope, host)?;
+                    statements::push_hoist_statement(&mut pending, body)?;
                 }
                 _ => {}
             }
@@ -1088,62 +1182,32 @@ impl Runtime {
         labels: &[String],
     ) -> Result<Flow, JsError> {
         self.tick()?;
+        self.statement_depth += 1;
+        if self.statement_depth > statements::MAX_STATEMENT_DEPTH {
+            self.statement_depth -= 1;
+            return Err(JsError::resource("Statement evaluation depth exceeded"));
+        }
+        let result = self.statement_labeled_inner(statement, scope, host, labels);
+        self.statement_depth -= 1;
+        result
+    }
+    fn statement_labeled_inner(
+        &mut self,
+        statement: &Stmt,
+        scope: usize,
+        host: &mut impl Host,
+        labels: &[String],
+    ) -> Result<Flow, JsError> {
         match statement {
             Stmt::Empty | Stmt::FunctionDefinition(..) => Ok(Flow::Empty),
             Stmt::ClassDefinition(name, definition) => {
-                let value = self.eval_class(definition, scope, host)?;
-                let binding = self.scopes[scope]
-                    .bindings
-                    .get_mut(name)
-                    .ok_or_else(|| JsError::runtime("Missing class binding"))?;
-                binding.value = value;
-                binding.initialized = true;
-                Ok(Flow::Empty)
+                self.statement_class(name, definition, scope, host)
             }
             Stmt::PatternVariables(kind, values) => {
-                for (pattern, initial) in values {
-                    if *kind == Declaration::Var && initial.is_none() {
-                        continue;
-                    }
-                    let value = match initial {
-                        Some(expr) => self.eval(expr, scope, host)?,
-                        None => Value::Undefined,
-                    };
-                    self.bind_declared_pattern(pattern, value, *kind, scope, host)?;
-                }
-                Ok(Flow::Empty)
+                self.statement_patterns(kind, values, scope, host)
             }
             Stmt::Expression(expr) => Ok(Flow::Normal(self.eval(expr, scope, host)?)),
-            Stmt::Variables(kind, values) => {
-                for (name, initial) in values {
-                    let target = if *kind == Declaration::Var {
-                        self.function_scope(scope)
-                    } else {
-                        scope
-                    };
-                    if !self.scopes[target].bindings.contains_key(name) {
-                        self.declare(
-                            target,
-                            name,
-                            *kind != Declaration::Const,
-                            *kind == Declaration::Var,
-                        )?;
-                    }
-                    let value = match initial {
-                        Some(expr) => self.eval(expr, scope, host)?,
-                        None => Value::Undefined,
-                    };
-                    if initial.is_some() || *kind != Declaration::Var {
-                        self.initialize_binding_value(target, name, value, host)?;
-                    }
-                    self.scopes[target]
-                        .bindings
-                        .get_mut(name)
-                        .unwrap()
-                        .initialized = true;
-                }
-                Ok(Flow::Empty)
-            }
+            Stmt::Variables(kind, values) => self.statement_variables(kind, values, scope, host),
             Stmt::Block(statements) => {
                 let child = self.scope(scope, false)?;
                 self.block(statements, child, host)
@@ -1157,281 +1221,38 @@ impl Runtime {
                     Ok(Flow::Normal(Value::Undefined))
                 }
             }
+            Stmt::IfChain(chain) => self.statement_if_chain(chain, scope, host),
             Stmt::While(condition, body) => {
-                while self.eval(condition, scope, host)?.truthy() {
-                    match self.statement(body, scope, host)? {
-                        Flow::Break(None) => break,
-                        Flow::Continue(Some(label)) if labels.contains(&label) => {}
-                        other @ (Flow::Break(Some(_)) | Flow::Continue(Some(_))) => {
-                            return Ok(other);
-                        }
-                        Flow::Return(value) => return Ok(Flow::Return(value)),
-                        _ => {}
-                    }
-                }
-                Ok(Flow::Normal(Value::Undefined))
+                self.statement_while(condition, body, scope, host, labels)
             }
             Stmt::DoWhile(body, condition) => {
-                loop {
-                    match self.statement(body, scope, host)? {
-                        Flow::Break(None) => break,
-                        Flow::Continue(Some(label)) if labels.contains(&label) => {}
-                        other @ (Flow::Break(Some(_)) | Flow::Continue(Some(_))) => {
-                            return Ok(other);
-                        }
-                        Flow::Return(value) => return Ok(Flow::Return(value)),
-                        _ => {}
-                    }
-                    if !self.eval(condition, scope, host)?.truthy() {
-                        break;
-                    }
-                }
-                Ok(Flow::Normal(Value::Undefined))
+                self.statement_do_while(body, condition, scope, host, labels)
             }
             Stmt::Try {
                 body,
                 catch,
                 finally,
-            } => {
-                let child = self.scope(scope, false)?;
-                let mut result = self.block(body, child, host);
-                // Exhaustion is a host boundary, not an exception a page can
-                // swallow or override by returning from finally.
-                if result
-                    .as_ref()
-                    .is_err_and(|error| error.kind == ErrorKind::Resource)
-                {
-                    return result;
-                }
-                if let Err(error) = result.as_ref()
-                    && error.kind != ErrorKind::Resource
-                    && let Some((binding, body)) = catch
-                {
-                    let value = self.exception_value(error)?;
-                    let diagnostic = exception_diagnostics::CatchDiagnostic::capture(error, &value);
-                    let child = self.scope(scope, false)?;
-                    if let Some(name) = binding {
-                        self.declare(child, name, true, true)?;
-                        self.scopes[child].bindings.get_mut(name).unwrap().value = value;
-                    }
-                    result = self.block(body, child, host);
-                    if let Err(error) = &mut result {
-                        diagnostic.attach(error);
-                    }
-                }
-                if result
-                    .as_ref()
-                    .is_err_and(|error| error.kind == ErrorKind::Resource)
-                {
-                    return result;
-                }
-                if let Some(body) = finally {
-                    let child = self.scope(scope, false)?;
-                    let final_result = self.block(body, child, host);
-                    if !matches!(final_result, Ok(Flow::Normal(_) | Flow::Empty)) {
-                        return final_result;
-                    }
-                }
-                result
-            }
+            } => self.statement_try(body, catch, finally, scope, host),
             Stmt::Switch(discriminant, clauses) => {
-                let value = self.eval(discriminant, scope, host)?;
-                let child = self.scope(scope, false)?;
-                let statements = clauses
-                    .iter()
-                    .flat_map(|(_, body)| body.iter().cloned())
-                    .collect::<Vec<_>>();
-                self.prepare(&statements, child, host)?;
-                let mut start = None;
-                let mut default = None;
-                for (index, (test, _)) in clauses.iter().enumerate() {
-                    self.tick()?;
-                    if let Some(test) = test {
-                        if strict_equal(&value, &self.eval(test, child, host)?) {
-                            start = Some(index);
-                            break;
-                        }
-                    } else {
-                        default = Some(index);
-                    }
-                }
-                let mut last = Value::Undefined;
-                if let Some(start) = start.or(default) {
-                    for (_, statements) in &clauses[start..] {
-                        for statement in statements {
-                            match self.statement(statement, child, host)? {
-                                Flow::Normal(value) => last = value,
-                                Flow::Break(None) => return Ok(Flow::Normal(last)),
-                                Flow::Empty => {}
-                                flow => return Ok(flow),
-                            }
-                        }
-                    }
-                }
-                Ok(Flow::Normal(last))
+                self.statement_switch(discriminant, clauses, scope, host)
             }
-            Stmt::For(initial, condition, update, body) => {
-                let mut child = self.scope(scope, false)?;
-                let mut per_iteration = Vec::new();
-                if let Some(initial) = initial {
-                    match initial.as_ref() {
-                        Stmt::Variables(Declaration::Let, values) => {
-                            per_iteration.extend(values.iter().map(|(name, _)| name.clone()))
-                        }
-                        Stmt::PatternVariables(Declaration::Let, values) => {
-                            for (pattern, _) in values {
-                                pattern.names(&mut per_iteration);
-                            }
-                        }
-                        _ => {}
-                    }
-                    self.prepare(std::slice::from_ref(initial.as_ref()), child, host)?;
-                    self.statement(initial, child, host)?;
-                }
-                child = self.copy_iteration_scope(child, &per_iteration)?;
-                loop {
-                    self.tick()?;
-                    if let Some(condition) = condition
-                        && !self.eval(condition, child, host)?.truthy()
-                    {
-                        break;
-                    }
-                    match self.statement(body, child, host)? {
-                        Flow::Break(None) => break,
-                        Flow::Continue(Some(label)) if labels.contains(&label) => {}
-                        other @ (Flow::Break(Some(_)) | Flow::Continue(Some(_))) => {
-                            return Ok(other);
-                        }
-                        Flow::Return(v) => return Ok(Flow::Return(v)),
-                        _ => {}
-                    }
-                    child = self.copy_iteration_scope(child, &per_iteration)?;
-                    if let Some(update) = update {
-                        self.eval(update, child, host)?;
-                    }
-                }
-                Ok(Flow::Normal(Value::Undefined))
-            }
+            Stmt::For(..) => self.statement_for(statement, scope, host, labels),
             Stmt::ForIn(binding, source, body) => {
-                let source_scope = if let ForBinding::Declaration(kind, name) = binding
-                    && *kind != Declaration::Var
-                {
-                    let child = self.scope(scope, false)?;
-                    self.declare(child, name, *kind == Declaration::Let, false)?;
-                    child
-                } else if let ForBinding::Pattern(kind, pattern) = binding
-                    && *kind != Declaration::Var
-                {
-                    let child = self.scope(scope, false)?;
-                    self.declare_pattern(pattern, *kind, child)?;
-                    child
-                } else {
-                    scope
-                };
-                let object = self.eval(source, source_scope, host)?;
-                let keys = self.enumerable_keys(&object)?;
-                for key in keys {
-                    self.tick()?;
-                    // Deleted properties are skipped. New properties are not
-                    // appended to this bounded enumeration snapshot.
-                    if !matches!(object, Value::String(_) | Value::Utf16(_))
-                        && !self.has_property(&object, &key, host)?
-                    {
-                        continue;
-                    }
-                    let value = self.string(key)?;
-                    let iteration = self.iteration_scope(binding, value, scope, host)?;
-                    match self.statement(body, iteration, host)? {
-                        Flow::Break(None) => break,
-                        Flow::Continue(Some(label)) if labels.contains(&label) => {}
-                        other @ (Flow::Break(Some(_)) | Flow::Continue(Some(_))) => {
-                            return Ok(other);
-                        }
-                        Flow::Return(value) => return Ok(Flow::Return(value)),
-                        _ => {}
-                    }
-                }
-                Ok(Flow::Normal(Value::Undefined))
+                self.statement_for_in(binding, source, body, scope, host, labels)
             }
             Stmt::ForAwaitOf(..) => Err(JsError::syntax(
                 0,
                 "For-await-of requires an async resumable function frame",
             )),
             Stmt::ForOf(binding, source, body) => {
-                let source_scope = match binding {
-                    ForBinding::Declaration(kind, name) if *kind != Declaration::Var => {
-                        let child = self.scope(scope, false)?;
-                        self.declare(child, name, *kind == Declaration::Let, false)?;
-                        child
-                    }
-                    ForBinding::Pattern(kind, pattern) if *kind != Declaration::Var => {
-                        let child = self.scope(scope, false)?;
-                        self.declare_pattern(pattern, *kind, child)?;
-                        child
-                    }
-                    _ => scope,
-                };
-                let value = self.eval(source, source_scope, host)?;
-                let mut iterator = self.iterator(value, host)?;
-                let mut count = 0usize;
-                let mut last = Value::Undefined;
-                let result = (|| {
-                    while let Some(value) = self.iterator_next(&mut iterator, host)? {
-                        count += 1;
-                        if count > 4096 {
-                            return Err(JsError::resource("For-of iteration item limit exceeded"));
-                        }
-                        let iteration = self.iteration_scope(binding, value, scope, host)?;
-                        match self.statement(body, iteration, host)? {
-                            Flow::Break(None) => {
-                                self.iterator_close(&mut iterator, host)?;
-                                return Ok(Flow::Normal(last));
-                            }
-                            Flow::Continue(None) => {}
-                            Flow::Continue(Some(label)) if labels.contains(&label) => {}
-                            Flow::Normal(value) => last = value,
-                            Flow::Empty => {}
-                            other => {
-                                self.iterator_close(&mut iterator, host)?;
-                                return Ok(other);
-                            }
-                        }
-                    }
-                    Ok(Flow::Normal(last))
-                })();
-                if result
-                    .as_ref()
-                    .is_err_and(|error| error.kind != ErrorKind::Resource)
-                {
-                    self.iterator_close(&mut iterator, host)?;
-                }
-                result
+                self.statement_for_of(binding, source, body, scope, host, labels)
             }
             Stmt::Return(value) => Ok(Flow::Return(match value {
                 Some(expr) => self.eval(expr, scope, host)?,
                 None => Value::Undefined,
             })),
-            Stmt::Throw(expr) => {
-                let value = self.eval(expr, scope, host)?;
-                let mut error = JsError::runtime(format!(
-                    "Uncaught {}",
-                    value
-                        .primitive_text()
-                        .unwrap_or_else(|_| "[object Object]".into())
-                ));
-                error.thrown = Some(value);
-                Err(error)
-            }
-            Stmt::Label(name, body) => {
-                let mut labels = labels.to_vec();
-                labels.push(name.clone());
-                match self.statement_labeled(body, scope, host, &labels)? {
-                    Flow::Break(Some(label)) if label == *name => {
-                        Ok(Flow::Normal(Value::Undefined))
-                    }
-                    other => Ok(other),
-                }
-            }
+            Stmt::Throw(expr) => self.statement_throw(expr, scope, host),
+            Stmt::Label(name, body) => self.statement_label(name, body, scope, host, labels),
             Stmt::Break(label) => Ok(Flow::Break(label.clone())),
             Stmt::Continue(label) => Ok(Flow::Continue(label.clone())),
         }
@@ -1527,242 +1348,28 @@ impl Runtime {
         scope: usize,
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
+        // Preserve the root expression tick even when native admission fails.
         self.tick()?;
+        if self.eval_depth >= evaluation::storage::MAX_NATIVE_EVAL_DEPTH {
+            let mut error = JsError::resource("Expression evaluation depth exceeded");
+            self.sync_error_context(&mut error, "native-entry");
+            return Err(error);
+        }
+        let native = self.eval_depth;
+        let active = self.sync_execution.active;
+        let entered = active
+            .checked_add(1)
+            .ok_or_else(|| JsError::resource("Synchronous execution barrier overflow"))?;
+        let epoch = self.enter_execution_epoch()?;
         self.eval_depth += 1;
-        if self.eval_depth > 64 {
-            self.eval_depth -= 1;
-            return Err(JsError::resource("Expression evaluation depth exceeded"));
-        }
-        let result = self.eval_inner(expression, scope, host);
-        self.eval_depth -= 1;
+        self.sync_execution.active = entered;
+        let result = self.eval_sync(expression, scope, host);
+        // eval_sync has already destroyed its Vec, including all error paths.
+        // Restore the caller's counters, not zero: it may still own live frames.
+        self.sync_execution.active = active;
+        self.eval_depth = native;
+        self.leave_execution_epoch(epoch);
         result
-    }
-    fn eval_inner(
-        &mut self,
-        expression: &Expr,
-        scope: usize,
-        host: &mut impl Host,
-    ) -> Result<Value, JsError> {
-        match expression {
-            Expr::ImportMeta => self.eval_import_meta(scope),
-            Expr::ImportCall { specifier, options } => {
-                self.eval_import_call(specifier, options.as_deref(), scope, host)
-            }
-            Expr::Literal(value) => Ok(value.clone()),
-            Expr::RegExp(pattern, flags) => self.make_regexp(pattern, flags),
-            Expr::Name(name) => self.read(scope, name, host),
-            Expr::Array(values) => {
-                if values.len() > 4096 {
-                    return Err(JsError::resource("Array limit exceeded"));
-                }
-                let mut output = Vec::new();
-                let mut holes = BTreeSet::new();
-                for expr in values {
-                    match expr {
-                        Expr::Spread(expr) => {
-                            let source = self.eval(expr, scope, host)?;
-                            self.literal_array_spread(&mut output, source, host)?;
-                        }
-                        Expr::Hole => self.literal_array_append(
-                            &mut output,
-                            &mut holes,
-                            Value::Undefined,
-                            true,
-                        )?,
-                        expr => {
-                            let value = self.eval(expr, scope, host)?;
-                            self.literal_array_append(&mut output, &mut holes, value, false)?;
-                        }
-                    }
-                }
-                self.literal_array_finish(output, holes)
-            }
-            Expr::Object(pairs) => {
-                if pairs.len() > 128 {
-                    return Err(JsError::resource("Object property limit exceeded"));
-                }
-                let object = self.ordinary_object(BTreeMap::new())?;
-                for (name, expr) in pairs {
-                    if let Expr::Spread(expr) = expr {
-                        let source = self.eval(expr, scope, host)?;
-                        self.copy_properties(object.clone(), source, &BTreeSet::new(), host)?;
-                    } else {
-                        let value = self.eval(expr, scope, host)?;
-                        if matches!(expr, Expr::Function { method: true, .. }) {
-                            let function_name = self.string(name.clone())?;
-                            self.set_unchecked(value.clone(), "name", function_name, host)?;
-                            if let Value::Function(id) = &value {
-                                self.property_metadata.entry(*id).or_default().insert(
-                                    "name".into(),
-                                    descriptors::PropertyMetadata {
-                                        writable: false,
-                                        enumerable: false,
-                                        configurable: true,
-                                        accessor: None,
-                                    },
-                                );
-                            }
-                        }
-                        self.create_data_property(&object, name, value, host)?;
-                    }
-                }
-                Ok(object)
-            }
-            Expr::Function {
-                name,
-                params,
-                body,
-                arrow,
-                parameters,
-                kind,
-                method,
-            } => {
-                if let Some(name) = name {
-                    let child = self.scope(scope, false)?;
-                    self.declare(child, name, false, true)?;
-                    let function =
-                        self.make_function(params.clone(), body.clone(), child, *arrow)?;
-                    self.attach_parameters(&function, parameters.clone())?;
-                    self.configure_resumable_function(&function, *kind, *method)?;
-                    self.scopes[child].bindings.get_mut(name).unwrap().value = function.clone();
-                    Ok(function)
-                } else {
-                    let function =
-                        self.make_function(params.clone(), body.clone(), scope, *arrow)?;
-                    self.attach_parameters(&function, parameters.clone())?;
-                    self.configure_resumable_function(&function, *kind, *method)?;
-                    Ok(function)
-                }
-            }
-            Expr::Await(_) | Expr::Yield(_) | Expr::YieldDelegate(_) => Err(JsError::syntax(
-                0,
-                "Suspension requires a resumable function frame",
-            )),
-            Expr::Member(object, property) => {
-                if matches!(object.as_ref(), Expr::Super) {
-                    return self.super_get(property, scope, host);
-                }
-                let object = self.eval(object, scope, host)?;
-                let key = self.eval(property, scope, host)?;
-                self.read_member_values(object, key, host)
-            }
-            Expr::PrivateMember(object, name) => {
-                let value = self.eval(object, scope, host)?;
-                let class = self.private_class(scope)?;
-                self.private_get(value, class, name, host)
-            }
-            Expr::Class(definition) => self.eval_class(definition, scope, host),
-            Expr::Template(parts) => {
-                let mut units = Vec::new();
-                for part in parts {
-                    let value = self.eval(part, scope, host)?;
-                    self.literal_template_append(&mut units, value, host)?;
-                }
-                self.literal_template_finish(units)
-            }
-            Expr::Spread(_) | Expr::Hole | Expr::Super => {
-                Err(JsError::runtime("Invalid standalone language expression"))
-            }
-            Expr::Call(callee, args) => {
-                if matches!(callee.as_ref(), Expr::Super) {
-                    let args = self.argument_values(args, scope, host)?;
-                    return self.super_construct(args, scope, host);
-                }
-                if let Expr::Member(base, key) = callee.as_ref()
-                    && matches!(base.as_ref(), Expr::Super)
-                {
-                    let function = self.super_get(key, scope, host)?;
-                    let this = self.read(scope, "this", host)?;
-                    let args = self.argument_values(args, scope, host)?;
-                    return self.call(function, args, this, host);
-                }
-                if let Expr::PrivateMember(object, name) = callee.as_ref() {
-                    let object = self.eval(object, scope, host)?;
-                    let class = self.private_class(scope)?;
-                    let function = self.private_get(object.clone(), class, name, host)?;
-                    let args = self.argument_values(args, scope, host)?;
-                    return self.call(function, args, object, host);
-                }
-                // Keep direct eval in the calling lexical environment.
-                if matches!(callee.as_ref(), Expr::Name(name) if name == "eval") {
-                    let callable = self.eval(callee, scope, host)?;
-                    let args = self.argument_values(args, scope, host)?;
-                    return if callable == Value::Native("eval") {
-                        self.dynamic_eval(&args, scope, true, host)
-                    } else {
-                        self.call(callable, args, Value::Undefined, host)
-                            .map_err(|error| callables::error_context(error, "eval"))
-                    };
-                }
-                let target = self.prepare_call(callee, scope, host)?;
-                let args = self.argument_values(args, scope, host)?;
-                self.invoke_prepared_call(target, args, host)
-            }
-            Expr::Construct(callee, args) => {
-                let callable = self.eval(callee, scope, host)?;
-                let args = self.argument_values(args, scope, host)?;
-                self.construct(callable, args, host)
-            }
-            Expr::Unary(op, expr) => {
-                if op == "delete" {
-                    return self.delete_expression(expr, scope, host);
-                }
-                if op == "typeof"
-                    && let Expr::Name(name) = expr.as_ref()
-                    && self.lookup_binding(scope, name).is_none()
-                    && self.global_own_property(name).is_none()
-                    && (self.global_deleted(name)
-                        || (host.global(name).is_none() && intrinsic_global(name).is_none()))
-                {
-                    return self.string("undefined".into());
-                }
-                let value = self.eval(expr, scope, host)?;
-                self.unary_value(op, value, host)
-            }
-            Expr::Binary(op, left, right) => {
-                let left = self.eval(left, scope, host)?;
-                if op == "&&" && !left.truthy()
-                    || op == "||" && left.truthy()
-                    || op == "??" && !matches!(left, Value::Undefined | Value::Null)
-                {
-                    return Ok(left);
-                }
-                let right = self.eval(right, scope, host)?;
-                self.binary_value(op, left, right, host)
-            }
-            Expr::Assign(op, target, expression) => {
-                if op == "=" && matches!(target.as_ref(), Expr::Array(_) | Expr::Object(_)) {
-                    let value = self.eval(expression, scope, host)?;
-                    self.assign_destructure(target, value.clone(), scope, host)?;
-                    return Ok(value);
-                }
-                let place = self.place(target, scope, host)?;
-                let previous = if op != "=" {
-                    Some(self.read_place(&place, host)?)
-                } else {
-                    None
-                };
-                let right = self.eval(expression, scope, host)?;
-                let value = if let Some(left) = previous {
-                    self.binary(&op[..op.len() - 1], left, right, host)?
-                } else {
-                    right
-                };
-                self.write_place(place, value.clone(), host)?;
-                Ok(value)
-            }
-            Expr::Update(target, increment, prefix) => {
-                let place = self.place(target, scope, host)?;
-                self.update_place(place, *increment, *prefix, host)
-            }
-            Expr::Conditional(condition, yes, no) => {
-                if self.eval(condition, scope, host)?.truthy() {
-                    self.eval(yes, scope, host)
-                } else {
-                    self.eval(no, scope, host)
-                }
-            }
-        }
     }
     fn make_function(
         &mut self,
@@ -1783,6 +1390,7 @@ impl Runtime {
                 scope,
                 arrow,
                 lexical_this,
+                internal_prototype: None,
                 properties: BTreeMap::new(),
                 strict,
                 parameters: None,
@@ -1799,39 +1407,13 @@ impl Runtime {
         host: &mut impl Host,
     ) -> Result<Place, JsError> {
         match target {
-            Expr::Name(name) => {
-                if let Some(id) = self.lookup_binding(scope, name) {
-                    Ok(Place::Binding(id, name.clone()))
-                } else if let Some(id) = host.global_object() {
-                    if self.strict
-                        && self.global_own_property(name).is_none()
-                        && (self.global_deleted(name)
-                            || (intrinsic_global(name).is_none()
-                                && !host.has_property(id, name)?))
-                    {
-                        return Err(JsError::runtime(format!(
-                            "Assignment to undeclared identifier {name}"
-                        )));
-                    }
-                    Ok(Place::Global(id, name.clone()))
-                } else {
-                    Err(JsError::runtime(format!(
-                        "Assignment to undeclared identifier {name}"
-                    )))
-                }
-            }
+            Expr::Name(name) => self.sync_name_place(name, scope, host),
             Expr::Member(object, property) => {
                 if matches!(object.as_ref(), Expr::Super) {
                     let base = self.super_base(scope, host)?;
                     let receiver = self.read(scope, "this", host)?;
                     let key = self.eval(property, scope, host)?;
-                    let key = self.coerce_property_key(key, host)?;
-                    if matches!(key, Value::Symbol(..)) {
-                        return Err(
-                            self.property_type_error("Symbol super assignment is not implemented")
-                        );
-                    }
-                    return Ok(Place::SuperMember(base, receiver, self.text(&key, 0)?));
+                    return self.super_place_values(base, receiver, key, host);
                 }
                 let object = self.eval(object, scope, host)?;
                 let key = self.eval(property, scope, host)?;
@@ -1840,7 +1422,11 @@ impl Runtime {
             Expr::PrivateMember(object, name) => {
                 let object = self.eval(object, scope, host)?;
                 let class = self.private_class(scope)?;
-                Ok(Place::PrivateMember(object, class, name.clone()))
+                Ok(Place::PrivateMember(
+                    object,
+                    class,
+                    self.sync_owned_metadata(name)?,
+                ))
             }
             _ => Err(JsError::runtime("Invalid assignment target")),
         }
@@ -1917,213 +1503,215 @@ impl Runtime {
     }
     fn get_with_receiver(
         &mut self,
-        object: Value,
+        mut object: Value,
         property: &str,
         receiver: Value,
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
-        if let Value::Native(name @ ("Symbol" | "Number")) = object {
-            let storage = self.intrinsic_constructor_storage(name)?;
-            return self.get_with_receiver(storage, property, receiver, host);
-        }
-        if object == Value::Native("Function.prototype") {
-            if let Some(descriptor) = self.function_prototype_descriptor(property)? {
-                return Ok(descriptor.value);
+        // One bounded, iterative walk across mixed Object/Function/Array chains.
+        // A change of representation must never reset the depth or grow the stack.
+        for _ in 0..64 {
+            self.tick()?;
+            if let Value::Native(name @ ("Symbol" | "Number")) = object {
+                object = self.intrinsic_constructor_storage(name)?;
+                continue;
             }
-            let prototype = self.object_prototype_value()?;
-            return self.get_with_receiver(prototype, property, receiver, host);
-        }
-        if let Some(value) = self.wasm_get(&object, property)? {
-            return Ok(value);
-        }
-        if let Some(value) = self.reflection_get(&object, property, host)? {
-            return Ok(value);
-        }
-        if let Some(value) = self.stdlib_get(&object, property)? {
-            return Ok(value);
-        }
-        if let Some(value) = self.promise_get(&object, property)? {
-            return Ok(value);
-        }
-        if let Some(value) = self.weak_ref_get(&object, property)? {
-            return Ok(value);
-        }
-        if let Some(value) = self.weak_collection_get(&object, property)? {
-            return Ok(value);
-        }
-        if let Some(value) = self.finalization_registry_get(&object, property)? {
-            return Ok(value);
-        }
-        match object {
-            Value::Host(id) => {
-                if host.is_callable(id)
-                    && let Some(method) = callables::callable_method(property)
+            if reflection::intrinsic_ancestors::readonly_ancestor_names(&object).is_some() {
+                if let Some(descriptor) =
+                    self.readonly_ancestor_descriptor(&object, property, true)?
                 {
-                    return Ok(method);
+                    return Ok(descriptor.value);
                 }
-                if Some(id) == host.global_object() {
-                    if host.global_accessor(property) {
-                        let value = host.get(id, property)?;
-                        return self.host_value(value);
-                    }
-                    if let Some(value) =
-                        self.read_global_stored(property, receiver.clone(), host)?
+                object = self.readonly_ancestor_parent(&object)?.unwrap();
+                continue;
+            }
+            if let Some(value) = self.wasm_get(&object, property)? {
+                return Ok(value);
+            }
+            if let Some(value) = self.reflection_get(&object, property, host)? {
+                return Ok(value);
+            }
+            if let Some(value) = self.stdlib_get(&object, property)? {
+                return Ok(value);
+            }
+            if let Some(value) = self.promise_get(&object, property)? {
+                return Ok(value);
+            }
+            if let Some(value) = self.weak_ref_get(&object, property)? {
+                return Ok(value);
+            }
+            if let Some(value) = self.weak_collection_get(&object, property)? {
+                return Ok(value);
+            }
+            if let Some(value) = self.finalization_registry_get(&object, property)? {
+                return Ok(value);
+            }
+            return match object {
+                Value::Host(id) => {
+                    if host.is_callable(id)
+                        && let Some(method) = callables::callable_method(property)
                     {
+                        return Ok(method);
+                    }
+                    if Some(id) == host.global_object() {
+                        if host.global_accessor(property) {
+                            let value = host.get(id, property)?;
+                            return self.host_value(value);
+                        }
+                        if let Some(value) =
+                            self.read_global_stored(property, receiver.clone(), host)?
+                        {
+                            return Ok(value);
+                        }
+                        if let Some(value) = self.global_own_property(property) {
+                            return Ok(value);
+                        }
+                        if self.global_deleted(property) {
+                            return Ok(Value::Undefined);
+                        }
+                        if property == "crypto" {
+                            return self.crypto_namespace(host);
+                        }
+                        if property == "performance" {
+                            return self.performance_namespace(host);
+                        }
+                        if property == "WebAssembly" {
+                            return self.wasm_namespace();
+                        }
+                        if property == "JSON" {
+                            return self.json_namespace();
+                        }
+                        if property == "Reflect" {
+                            return self.reflect_namespace();
+                        }
+                        if property == "Math" {
+                            return self.math_namespace();
+                        }
+                        if let Some(value) = intrinsic_global(property) {
+                            return Ok(value);
+                        }
+                    }
+                    let value = host.get(id, property)?;
+                    self.host_value(value)
+                }
+                Value::Array(id) => {
+                    if let Some(value) = self.read_accessor(id, property, receiver.clone(), host)? {
                         return Ok(value);
                     }
-                    if let Some(value) = self.global_own_property(property) {
+                    let Heap::Array(values) = &self.heap[id] else {
+                        return Err(JsError::runtime("Invalid array reference"));
+                    };
+                    if property == "length" {
+                        Ok(Value::Number(values.len() as f64))
+                    } else if let Some(index) = properties::array_index(property)
+                        && self.array_has_index(id, index, values.len())
+                    {
+                        Ok(values[index].clone())
+                    } else {
+                        if let Some(value) = self
+                            .array_properties
+                            .get(&id)
+                            .and_then(|properties| properties.get(property))
+                            .cloned()
+                        {
+                            return Ok(value);
+                        }
+                        let prototype = if Some(id) == self.array_prototype {
+                            self.object_prototype_value()?
+                        } else {
+                            self.array_prototype_value()?
+                        };
+                        object = prototype;
+                        continue;
+                    }
+                }
+                Value::Object(id) => {
+                    if let Some(value) = self.read_accessor(id, property, receiver.clone(), host)? {
                         return Ok(value);
                     }
-                    if self.global_deleted(property) {
+                    let Some(Heap::Object(owner)) = self.heap.get(id) else {
+                        return Err(JsError::runtime("Invalid object reference"));
+                    };
+                    if let Some(value) = owner.properties.get(property) {
+                        return Ok(value.clone());
+                    }
+                    object = owner.prototype.clone().unwrap_or(Value::Null);
+                    if object == Value::Null {
                         return Ok(Value::Undefined);
                     }
-                    if property == "crypto" {
-                        return self.crypto_namespace(host);
-                    }
-                    if property == "performance" {
-                        return self.performance_namespace(host);
-                    }
-                    if property == "WebAssembly" {
-                        return self.wasm_namespace();
-                    }
-                    if property == "JSON" {
-                        return self.json_namespace();
-                    }
-                    if property == "Reflect" {
-                        return self.reflect_namespace();
-                    }
-                    if property == "Math" {
-                        return self.math_namespace();
-                    }
-                    if let Some(value) = intrinsic_global(property) {
+                    continue;
+                }
+                Value::Function(id) => {
+                    if let Some(value) = self.read_accessor(id, property, receiver.clone(), host)? {
                         return Ok(value);
                     }
-                }
-                let value = host.get(id, property)?;
-                self.host_value(value)
-            }
-            Value::Array(id) => {
-                if let Some(value) = self.read_accessor(id, property, receiver.clone(), host)? {
-                    return Ok(value);
-                }
-                let Heap::Array(values) = &self.heap[id] else {
-                    return Err(JsError::runtime("Invalid array reference"));
-                };
-                if property == "length" {
-                    Ok(Value::Number(values.len() as f64))
-                } else if let Some(index) = properties::array_index(property)
-                    && self.array_has_index(id, index, values.len())
-                {
-                    Ok(values[index].clone())
-                } else {
-                    if let Some(value) = self
-                        .array_properties
-                        .get(&id)
-                        .and_then(|properties| properties.get(property))
-                        .cloned()
-                    {
-                        return Ok(value);
-                    }
-                    let prototype = if Some(id) == self.array_prototype {
-                        self.object_prototype_value()?
-                    } else {
-                        self.array_prototype_value()?
+                    let Some(Heap::Function(function)) = self.heap.get(id) else {
+                        return Err(JsError::runtime("Invalid function reference"));
                     };
-                    self.get_with_receiver(prototype, property, receiver, host)
-                }
-            }
-            Value::Object(id) => {
-                let mut current = Value::Object(id);
-                for _ in 0..64 {
-                    self.tick()?;
-                    match current {
-                        Value::Object(id) => {
-                            if let Some(value) =
-                                self.read_accessor(id, property, receiver.clone(), host)?
-                            {
-                                return Ok(value);
-                            }
-                            let Some(Heap::Object(object)) = self.heap.get(id) else {
-                                return Err(JsError::runtime("Invalid object reference"));
-                            };
-                            if let Some(value) = object.properties.get(property) {
-                                return Ok(value.clone());
-                            }
-                            current = object.prototype.clone().unwrap_or(Value::Null);
-                        }
-                        Value::Null => return Ok(Value::Undefined),
-                        other => return self.get_with_receiver(other, property, receiver, host),
+                    if let Some(value) = function.properties.get(property) {
+                        return Ok(value.clone());
                     }
-                }
-                Err(JsError::resource("Prototype lookup depth exceeded"))
-            }
-            Value::Function(id) => {
-                if let Some(value) = self.read_accessor(id, property, receiver, host)? {
-                    return Ok(value);
-                }
-                let Some(Heap::Function(function)) = self.heap.get(id) else {
-                    return Err(JsError::runtime("Invalid function reference"));
-                };
-                if let Some(value) = function.properties.get(property) {
-                    return Ok(value.clone());
-                }
-                if property == "length" && !self.synthetic_deleted(id, property) {
-                    return Ok(Value::Number(function.params.len() as f64));
-                }
-                if property == "prototype" && function.has_prototype() {
-                    if function.properties.len() >= 128 {
-                        return Err(JsError::resource("Function property limit exceeded"));
+                    if property == "length" && !self.synthetic_deleted(id, property) {
+                        return Ok(Value::Number(function.params.len() as f64));
                     }
-                    self.charge_string("prototype".len())?;
-                    let prototype = self.ordinary_object(BTreeMap::from([(
-                        "constructor".into(),
-                        Value::Function(id),
-                    )]))?;
-                    self.hide_properties(&prototype, &["constructor"]);
-                    let Heap::Function(function) = &mut self.heap[id] else {
-                        unreachable!()
-                    };
-                    function
-                        .properties
-                        .insert("prototype".into(), prototype.clone());
-                    return Ok(prototype);
-                }
-                if let Some(base) = self.class_static_parent(id) {
-                    return self.get_with_receiver(base, property, Value::Function(id), host);
-                }
-                Ok(callables::callable_method(property).unwrap_or(Value::Undefined))
-            }
-            Value::Native(name) => {
-                if name == "Array" && property == "prototype" {
-                    return self.array_prototype_value();
-                }
-                if let Some(method) = callables::callable_method(property) {
-                    return Ok(method);
-                }
-                if property == "length" {
-                    return Ok(Value::Number(callables::native_length(name) as f64));
-                }
-                if property == "name" {
-                    return self.string(if name == "Function.prototype" {
-                        String::new()
+                    if property == "prototype" && function.has_prototype() {
+                        self.reserve_named_property(id, "prototype")?;
+                        self.charge_string("prototype".len())?;
+                        let prototype = self.ordinary_object(BTreeMap::from([(
+                            "constructor".into(),
+                            Value::Function(id),
+                        )]))?;
+                        self.hide_properties(&prototype, &["constructor"]);
+                        let Heap::Function(function) = &mut self.heap[id] else {
+                            unreachable!()
+                        };
+                        function
+                            .properties
+                            .insert("prototype".into(), prototype.clone());
+                        return Ok(prototype);
+                    }
+                    let prototype = self.function_internal_prototype(id)?;
+                    if prototype == Value::Null {
+                        Ok(Value::Undefined)
                     } else {
-                        name.rsplit('.').next().unwrap_or(name).into()
-                    });
+                        object = prototype;
+                        continue;
+                    }
                 }
-                Ok(intrinsic_property(name, property).unwrap_or(Value::Undefined))
-            }
-            object @ (Value::String(_) | Value::Utf16(_)) => Ok(self
-                .string_get_property(&object, property)?
-                .unwrap_or(Value::Undefined)),
-            Value::Symbol(..) => {
-                let prototype = self.symbol_prototype()?;
-                self.get_with_receiver(prototype, property, receiver, host)
-            }
-            Value::Null | Value::Undefined => Err(JsError::runtime(
-                "Cannot access property of null or undefined",
-            )),
-            _ => Err(JsError::runtime(format!("Unsupported property {property}"))),
+                Value::Native(name) => {
+                    if name == "Array" && property == "prototype" {
+                        return self.array_prototype_value();
+                    }
+                    if let Some(method) = callables::callable_method(property) {
+                        return Ok(method);
+                    }
+                    if property == "length" {
+                        return Ok(Value::Number(callables::native_length(name) as f64));
+                    }
+                    if property == "name" {
+                        return self.string(if name == "Function.prototype" {
+                            String::new()
+                        } else {
+                            name.rsplit('.').next().unwrap_or(name).into()
+                        });
+                    }
+                    Ok(intrinsic_property(name, property).unwrap_or(Value::Undefined))
+                }
+                object @ (Value::String(_) | Value::Utf16(_)) => Ok(self
+                    .string_get_property(&object, property)?
+                    .unwrap_or(Value::Undefined)),
+                Value::Symbol(..) => {
+                    let prototype = self.symbol_prototype()?;
+                    object = prototype;
+                    continue;
+                }
+                Value::Null | Value::Undefined => Err(JsError::runtime(
+                    "Cannot access property of null or undefined",
+                )),
+                _ => Err(JsError::runtime(format!("Unsupported property {property}"))),
+            };
         }
+        Err(JsError::resource("Prototype lookup depth exceeded"))
     }
     fn set(
         &mut self,
@@ -2171,23 +1759,25 @@ impl Runtime {
                     return Ok(());
                 }
                 if host.global_accessor(property) {
-                    return host.set_with_runtime(id, property, value, self);
+                    return self.with_host_callback(|runtime| {
+                        host.set_with_runtime(id, property, value, runtime)
+                    });
                 }
                 self.store_global_property(property, value, host)
             }
-            Value::Host(id) => host.set_with_runtime(id, property, value, self),
+            Value::Host(id) => self
+                .with_host_callback(|runtime| host.set_with_runtime(id, property, value, runtime)),
             Value::Function(id) => {
-                self.note_property_insertion(id, property);
-                if matches!(self.heap.get(id),Some(Heap::Function(function)) if !function.properties.contains_key(property))
-                {
+                if self.reserve_named_property(id, property)? {
                     self.charge_string(property.len())?;
+                    self.property_order
+                        .entry(id)
+                        .or_default()
+                        .push(property.into());
                 }
                 let Some(Heap::Function(function)) = self.heap.get_mut(id) else {
                     return Err(JsError::runtime("Invalid function reference"));
                 };
-                if function.properties.len() >= 128 && !function.properties.contains_key(property) {
-                    return Err(JsError::resource("Function property limit exceeded"));
-                }
                 function.properties.insert(property.into(), value);
                 Ok(())
             }
@@ -2211,15 +1801,13 @@ impl Runtime {
                 {
                     return Ok(());
                 }
-                if !object.properties.contains_key(property) {
-                    if object.properties.len() >= 128 {
-                        return Err(JsError::resource("Object property limit exceeded"));
-                    }
+                if self.reserve_named_property(id, property)? {
                     self.charge_string(property.len())?;
+                    self.property_order
+                        .entry(id)
+                        .or_default()
+                        .push(property.into());
                 }
-                // A rejected insertion must not reserve an ordering slot. This
-                // also keeps the metadata for intrinsic backing objects bounded.
-                self.note_property_insertion(id, property);
                 let Heap::Object(object) = &mut self.heap[id] else {
                     unreachable!()
                 };
@@ -2231,22 +1819,18 @@ impl Runtime {
                     return self.set_array_length(id, value, host);
                 }
                 let Some(index) = properties::array_index(property) else {
-                    self.note_property_insertion(id, property);
-                    if !self
-                        .array_properties
-                        .get(&id)
-                        .is_some_and(|properties| properties.contains_key(property))
-                    {
+                    if self.reserve_named_property(id, property)? {
                         self.charge_string(property.len())?;
+                        self.property_order
+                            .entry(id)
+                            .or_default()
+                            .push(property.into());
                     }
                     let properties = self.array_properties.entry(id).or_default();
-                    if properties.len() >= 128 && !properties.contains_key(property) {
-                        return Err(JsError::resource("Array property limit exceeded"));
-                    }
                     properties.insert(property.into(), value);
                     return Ok(());
                 };
-                if index >= 4096 {
+                if index >= MAX_ARRAY_LENGTH {
                     return Err(JsError::resource("Array index exceeds limit"));
                 }
                 let Some(Heap::Array(values)) = self.heap.get(id) else {
@@ -2260,7 +1844,7 @@ impl Runtime {
                 values.resize(old_length.max(index + 1), Value::Undefined);
                 values[index] = value;
                 let holes = self.array_holes.entry(id).or_default();
-                holes.extend(old_length..index);
+                holes.insert_range(old_length, index)?;
                 holes.remove(&index);
                 Ok(())
             }
@@ -2275,15 +1859,15 @@ impl Runtime {
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
         self.tick()?;
-        if args.len() > 32 {
-            return Err(JsError::resource("Call argument limit exceeded"));
-        }
+        call_storage::check_arguments(args.len())?;
         if self.call_depth >= self.limits.call_depth {
             return Err(JsError::resource("JavaScript call stack budget exceeded"));
         }
+        let epoch = self.enter_execution_epoch()?;
         self.call_depth += 1;
         let result = self.call_inner(callable, args, this, host);
         self.call_depth -= 1;
+        self.leave_execution_epoch(epoch);
         result
     }
     fn call_inner(
@@ -2297,197 +1881,13 @@ impl Runtime {
             if !host.is_callable(id) {
                 return Err(self.property_type_error("Value is not callable"));
             }
-            let value = host.call_with_runtime(id, "call", &args, &this, self)?;
+            let value = self.with_host_callback(|runtime| {
+                host.call_with_runtime(id, "call", &args, &this, runtime)
+            })?;
             return self.host_value(value);
         }
         if let Value::Native(name) = callable {
-            if name == "Array.from" {
-                return self.array_from(&args, this, host);
-            }
-            if name == "SubtleCrypto.digest" {
-                return self.crypto_digest(&args, &this, host);
-            }
-            if name == "Performance.now" {
-                return self.performance_now(&this, host);
-            }
-            if let Some(value) = self.wasm_native_call(name, &args, false, host)? {
-                return Ok(value);
-            }
-            if let Some(value) = self.numeric_global_call(name, &args, false, host)? {
-                return Ok(value);
-            }
-            if let Some(value) = self.conversion_builtin(name, &args, false, host)? {
-                return Ok(value);
-            }
-            if matches!(
-                name,
-                "BigInt.toString" | "BigInt.valueOf" | "BigInt.toLocaleString"
-            ) {
-                return self.bigint_method(name, &this, &args);
-            }
-            if let Some(value) = self.resumable_native_call(name, &args, this.clone(), host)? {
-                return Ok(value);
-            }
-            if let Some(value) = self.reflect_call(name, &args, false, host)? {
-                return Ok(value);
-            }
-            if let Some(value) = self.math_call(name, &args, false, host)? {
-                return Ok(value);
-            }
-            if let Some(value) = self.reflection_call(name, &args, this.clone(), false, host)? {
-                return Ok(value);
-            }
-            if let Some(value) = self.promise_call(name, &args, this.clone(), false, host)? {
-                return Ok(value);
-            }
-            if let Some(value) = self.weak_ref_call(name, &args, this.clone(), false)? {
-                return Ok(value);
-            }
-            if let Some(value) =
-                self.finalization_registry_call(name, &args, this.clone(), false, host)?
-            {
-                return Ok(value);
-            }
-            if let Some(value) =
-                self.weak_collection_call(name, &args, this.clone(), false, host)?
-            {
-                return Ok(value);
-            }
-            if let Some(value) = self.stdlib_call(name, &args, this.clone(), false, host)? {
-                return Ok(value);
-            }
-            if name == "JSON.parse" {
-                return self.json_parse_with_host(&args, host);
-            }
-            if name == "JSON.stringify" {
-                return self.json_stringify(&args, host);
-            }
-            if name == "String.fromCharCode" {
-                return self.string_from_char_code(&args);
-            }
-            if name == "String.fromCodePoint" {
-                return self.string_from_code_point(&args);
-            }
-            if let Some(method) = name.strip_prefix("String.") {
-                return self.string_method(&this, method, args, host);
-            }
-            if let Some(method) = name.strip_prefix("Function.")
-                && matches!(method, "call" | "apply" | "bind")
-            {
-                return self.callable_adapter(method, this, args, host);
-            }
-            if name == "Function.prototype" {
-                return Ok(Value::Undefined);
-            }
-            if name == "Object.hasOwn" {
-                let target = args.first().cloned().unwrap_or(Value::Undefined);
-                if matches!(target, Value::Null | Value::Undefined) {
-                    return Err(
-                        self.property_type_error("Object.hasOwn requires a non-null target")
-                    );
-                }
-                let object = self.box_value(target)?;
-                let key = self
-                    .coerce_property_key(args.get(1).cloned().unwrap_or(Value::Undefined), host)?;
-                let present = if let Value::Symbol(symbol, _) = key {
-                    self.symbol_descriptor(&object, symbol)?.is_some()
-                } else {
-                    let name = self.text(&key, 0)?;
-                    if self.is_global_object(&object) {
-                        self.global_has_own(&name, host)?
-                    } else {
-                        self.has_own_property(&object, &name)?
-                    }
-                };
-                return Ok(Value::Bool(present));
-            }
-            if name == "eval" {
-                return self.dynamic_eval(&args, 0, false, host);
-            }
-            if name == "Function" {
-                return self.dynamic_function(&args, host);
-            }
-            if matches!(
-                name,
-                "Object.create"
-                    | "Object.getOwnPropertyDescriptor"
-                    | "Object.getOwnPropertyDescriptors"
-                    | "Object.getOwnPropertyNames"
-                    | "Object.defineProperty"
-                    | "Object.defineProperties"
-                    | "Object.keys"
-                    | "Object.values"
-                    | "Object.entries"
-            ) {
-                return self.descriptor_native(name, &args, host);
-            }
-            if let Some(property) = name.strip_prefix("Array.")
-                && matches!(
-                    property,
-                    "push"
-                        | "pop"
-                        | "join"
-                        | "forEach"
-                        | "map"
-                        | "slice"
-                        | "concat"
-                        | "filter"
-                        | "reduce"
-                        | "reduceRight"
-                        | "find"
-                        | "findIndex"
-                        | "findLast"
-                        | "findLastIndex"
-                        | "every"
-                        | "some"
-                        | "indexOf"
-                        | "lastIndexOf"
-                        | "includes"
-                        | "at"
-                        | "reverse"
-                        | "toReversed"
-                        | "shift"
-                        | "unshift"
-                        | "splice"
-                        | "toSpliced"
-                        | "sort"
-                        | "toSorted"
-                        | "fill"
-                        | "copyWithin"
-                        | "flat"
-                        | "flatMap"
-                        | "toString"
-                )
-            {
-                let Value::Array(id) = this else {
-                    return Err(JsError::runtime("Array method requires an array receiver"));
-                };
-                return self.array_method(id, property, args, host);
-            }
-            if matches!(name, "RegExp.test" | "RegExp.exec" | "RegExp.toString") {
-                let Value::Object(id) = this else {
-                    return Err(JsError::runtime("RegExp method requires a RegExp receiver"));
-                };
-                let compiled = self.regexp(id)?;
-                if name == "RegExp.toString" {
-                    return self.string(format!(
-                        "/{}/{}",
-                        regexp_source(&compiled.source),
-                        compiled.flags
-                    ));
-                }
-                let text = self.text(args.first().unwrap_or(&Value::Undefined), 0)?;
-                let result = self.regexp_exec(id, &text)?;
-                return if name == "RegExp.test" {
-                    Ok(Value::Bool(result.is_some()))
-                } else {
-                    match result {
-                        Some(result) => self.regexp_array(result, &text),
-                        None => Ok(Value::Null),
-                    }
-                };
-            }
-            return self.native(name, &args);
+            return self.call_native(name, args, this, host);
         }
         let Value::Function(id) = callable else {
             return Err(self.property_type_error("Value is not callable"));
@@ -2512,9 +1912,11 @@ impl Runtime {
         construction: Option<usize>,
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
+        call_storage::check_arguments(args.len())?;
         let Some(Heap::Function(function)) = self.heap.get(id) else {
             return Err(JsError::runtime("Invalid function reference"));
         };
+        let shadows_arguments = self.preflight_function_bindings(function, id)?;
         let function = function.clone();
         let async_promise = if function.kind == FunctionKind::Async {
             Some(self.new_async_promise()?)
@@ -2539,16 +1941,9 @@ impl Runtime {
                 this
             };
             self.attach_method_scope(id, scope)?;
-            let mut parameter_names = Vec::new();
-            if let Some(parameters) = &function.parameters {
-                for parameter in parameters.iter() {
-                    parameter.pattern.names(&mut parameter_names);
-                }
-            } else {
-                parameter_names.extend(function.params.iter().cloned());
-            }
-            if !function.arrow && !parameter_names.iter().any(|param| param == "arguments") {
-                let arguments = Value::Array(self.allocate(Heap::Array(args.clone()))?);
+            if !function.arrow && !shadows_arguments {
+                let values = self.copy_argument_values(&args)?;
+                let arguments = Value::Array(self.allocate_reserved(Heap::Array(values))?);
                 self.declare(scope, "arguments", true, true)?;
                 self.scopes[scope]
                     .bindings
@@ -2560,16 +1955,18 @@ impl Runtime {
                 for parameter in parameters.iter() {
                     self.declare_pattern(&parameter.pattern, Declaration::Let, scope)?;
                 }
-                for name in &parameter_names {
-                    if let Some(binding) = self.scopes[scope].bindings.get_mut(name) {
-                        binding.lexical = false;
-                    }
+                for parameter in parameters.iter() {
+                    parameter.pattern.visit_names(&mut |name| {
+                        if let Some(binding) = self.scopes[scope].bindings.get_mut(name) {
+                            binding.lexical = false;
+                        }
+                        Ok(())
+                    })?;
                 }
                 for (index, parameter) in parameters.iter().enumerate() {
                     let value = if parameter.rest {
-                        Value::Array(
-                            self.allocate(Heap::Array(args.iter().skip(index).cloned().collect()))?,
-                        )
+                        let values = self.copy_argument_values(args.get(index..).unwrap_or(&[]))?;
+                        Value::Array(self.allocate_reserved(Heap::Array(values))?)
                     } else {
                         args.get(index).cloned().unwrap_or(Value::Undefined)
                     };
@@ -2632,9 +2029,15 @@ impl Runtime {
         properties: BTreeMap<String, Value>,
         prototype: Option<Value>,
     ) -> Result<Value, JsError> {
-        if properties.len() > 128 {
-            return Err(JsError::resource("Object property limit exceeded"));
-        }
+        self.reserve_property_map(&properties)?;
+        self.object_reserved(properties, prototype)
+    }
+    /// Finish a builder whose key reservations precede its map/order allocations.
+    fn object_reserved(
+        &mut self,
+        properties: BTreeMap<String, Value>,
+        prototype: Option<Value>,
+    ) -> Result<Value, JsError> {
         let keys = properties.keys().cloned().collect();
         let id = self.allocate(Heap::Object(Object {
             properties,
@@ -2667,9 +2070,18 @@ impl Runtime {
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
         self.tick()?;
-        if args.len() > 32 {
-            return Err(JsError::resource("Constructor argument limit exceeded"));
-        }
+        let epoch = self.enter_execution_epoch()?;
+        let result = self.construct_inner(callable, args, host);
+        self.leave_execution_epoch(epoch);
+        result
+    }
+    fn construct_inner(
+        &mut self,
+        callable: Value,
+        args: Vec<Value>,
+        host: &mut impl Host,
+    ) -> Result<Value, JsError> {
+        call_storage::check_arguments(args.len())?;
         if let Value::Function(id) = &callable
             && let Some(bound) = self.bound_functions.get(id).cloned()
         {
@@ -2685,7 +2097,8 @@ impl Runtime {
             // Host callbacks can reenter the runtime. Keep their arguments live
             // by suppressing collection and use the ordinary call depth budget.
             self.call_depth += 1;
-            let result = host.construct_with_runtime(id, &args, self);
+            let result =
+                self.with_host_callback(|runtime| host.construct_with_runtime(id, &args, runtime));
             self.call_depth -= 1;
             let value = self.host_value(result?)?;
             let valid = match &value {
@@ -2816,6 +2229,7 @@ impl Runtime {
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
         self.tick()?;
+        call_storage::check_arguments(args.len())?;
         if self.is_callable_value(&object, host) && matches!(property, "call" | "apply" | "bind") {
             return self.callable_adapter(property, object, args, host);
         }
@@ -2824,9 +2238,6 @@ impl Runtime {
         }
         match object.clone() {
             Value::Host(id) => {
-                if args.len() > 32 {
-                    return Err(JsError::resource("Call argument limit exceeded"));
-                }
                 if self.call_depth >= self.limits.call_depth {
                     return Err(JsError::resource("JavaScript call stack budget exceeded"));
                 }
@@ -2834,7 +2245,9 @@ impl Runtime {
                 // Keep one frame active until the entire method has returned,
                 // preventing GC and nested microtask checkpoints between them.
                 self.call_depth += 1;
-                let result = host.call_with_runtime(id, property, &args, &Value::Host(id), self);
+                let result = self.with_host_callback(|runtime| {
+                    host.call_with_runtime(id, property, &args, &Value::Host(id), runtime)
+                });
                 self.call_depth -= 1;
                 self.host_value(result?)
             }
@@ -2960,31 +2373,39 @@ impl Runtime {
                     if !length.is_finite() || length < 0. || length.fract() != 0. {
                         return Err(JsError::runtime("Invalid array length"));
                     }
-                    if length > 4096. {
+                    if length > MAX_ARRAY_LENGTH as f64 {
                         let mut error = JsError::resource("Array item limit exceeded");
                         error.add_diagnostic_context(&format!(
-                            "array operation=construct requested-length={length:e} limit=4096",
+                            "array operation=construct requested-length={length:e} limit={MAX_ARRAY_LENGTH}",
                         ));
                         return Err(error);
                     }
-                    self.check_array_slots(length as usize)?;
-                    vec![Value::Undefined; length as usize]
+                    let mut values = self.value_buffer(length as usize)?;
+                    values.resize(length as usize, Value::Undefined);
+                    values
                 } else {
-                    args.to_vec()
+                    let mut values = self.value_buffer(args.len())?;
+                    values.extend_from_slice(args);
+                    values
                 };
                 let length = values.len();
-                let id = self.allocate(Heap::Array(values))?;
+                let id = self.allocate_reserved(Heap::Array(values))?;
                 if args.len() == 1 && matches!(first, Value::Number(_)) && length > 0 {
-                    self.array_holes.insert(id, (0..length).collect());
+                    self.array_holes.insert(id, ArrayHoles::full(length)?);
                 }
                 Ok(Value::Array(id))
             }
             "Array.isArray" => Ok(Value::Bool(matches!(first, Value::Array(_)))),
             "String.fromCharCode" => self.string_from_char_code(args),
             "Object.getPrototypeOf" => match first {
-                Value::Native("Function.prototype") => self.object_prototype_value(),
+                ref value
+                    if reflection::intrinsic_ancestors::readonly_ancestor_names(value)
+                        .is_some() =>
+                {
+                    Ok(self.readonly_ancestor_parent(value)?.unwrap())
+                }
                 Value::BigInt(_) => self.reflection_prototype("BigInt"),
-                Value::Function(_) => Ok(Value::Native("Function.prototype")),
+                Value::Function(id) => self.function_internal_prototype(id),
                 Value::Native(name) if name != "Function.prototype" => {
                     Ok(Value::Native("Function.prototype"))
                 }
@@ -3098,13 +2519,7 @@ impl Runtime {
             && (matches!(left, Value::String(_) | Value::Utf16(_))
                 || matches!(right, Value::String(_) | Value::Utf16(_)))
         {
-            let mut text = self.string_units_coerce(&left)?;
-            let tail = self.string_units_coerce(&right)?;
-            if text.len().saturating_add(tail.len()) > 65_536 {
-                return Err(JsError::resource("String concatenation exceeds limit"));
-            }
-            text.extend(tail);
-            return self.utf16_string(text);
+            return self.concat_strings(left, right);
         }
         if matches!(left, Value::BigInt(_)) || matches!(right, Value::BigInt(_)) {
             return self.bigint_binary(op, &left, &right);

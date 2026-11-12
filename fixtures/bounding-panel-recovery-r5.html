@@ -1,0 +1,47 @@
+<!doctype html>
+<title>R5 pending</title>
+<style>
+.panel { position: relative; width: 280px; height: 240px; }
+.anchor { position: absolute; left: 20.5px; top: 30.25px; width: 80.5px; height: 24.5px; padding: 3.25px; border: 1.5px solid #990000; background: #123456; color: transparent; }
+.anchor.wide { width: 100.5px; }
+.popup { position: absolute; width: 48px; height: 20px; background: #2468ac; color: transparent; }
+</style>
+<div id="panel" class="panel"><div id="anchor" class="anchor">Anchor</div><div id="popup" class="popup">Popup</div></div>
+<button id="resize" type="button">Resize</button>
+<script>
+var anchor = document.getElementById('anchor');
+// First new API: the R4 baseline fails here, before incidental capabilities.
+var original = anchor.getBoundingClientRect();
+var panel = document.getElementById('panel');
+var popup = document.getElementById('popup');
+var jobs = 0;
+var frames = 0;
+var clicks = 0;
+function place() {
+  var rect = anchor.getBoundingClientRect();
+  var rootRect = panel.getBoundingClientRect();
+  popup.style.left = (rect.right - rootRect.left) + 'px';
+  popup.style.top = (rect.bottom - rootRect.top) + 'px';
+  return rect;
+}
+var first = place();
+document.title = first.width === 90 && first.height === 34 &&
+  first.right === first.left + first.width && first.bottom === first.top + first.height &&
+  first.x === first.left && first.y === first.top ? 'R5 anchored' : 'R5 failed';
+Promise.resolve().then(function () { jobs += 1; });
+requestAnimationFrame(function () {
+  frames += 1;
+  anchor.classList.add('wide');
+  var current = place();
+  document.title = jobs === 1 && frames === 1 && current.width === 110 &&
+    original.width === 90 && original.right === original.left + 90
+    ? 'R5 expanded' : 'R5 failed';
+});
+document.getElementById('resize').addEventListener('click', function () {
+  clicks += 1;
+  anchor.classList.remove('wide');
+  var current = place();
+  document.title = clicks === 1 && jobs === 1 && frames === 1 &&
+    current.width === 90 && original.width === 90 ? 'R5 restored' : 'R5 failed';
+});
+</script>

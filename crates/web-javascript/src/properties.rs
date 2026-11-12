@@ -15,8 +15,6 @@ impl Runtime {
         if let Some(id) = self.array_prototype {
             return Ok(Value::Array(id));
         }
-        let id = self.allocate(Heap::Array(Vec::new()))?;
-        self.array_prototype = Some(id);
         let properties = std::collections::BTreeMap::from([
             ("constructor".into(), Value::Native("Array")),
             ("push".into(), Value::Native("Array.push")),
@@ -53,6 +51,9 @@ impl Runtime {
             ("flatMap".into(), Value::Native("Array.flatMap")),
             ("toString".into(), Value::Native("Array.toString")),
         ]);
+        self.reserve_property_map(&properties)?;
+        let id = self.allocate(Heap::Array(Vec::new()))?;
+        self.array_prototype = Some(id);
         self.array_non_enumerable
             .insert(id, properties.keys().cloned().collect());
         self.array_properties.insert(id, properties);
@@ -181,10 +182,9 @@ impl Runtime {
                     if self.has_own_property(&current, property)? {
                         return Ok(true);
                     }
-                    if let Some(base) = self.class_static_parent(id) {
-                        current = base;
-                    } else {
-                        return Ok(crate::callables::callable_method(property).is_some());
+                    current = self.function_internal_prototype(id)?;
+                    if current == Value::Null {
+                        return Ok(false);
                     }
                 }
                 Value::Native(name) => {
@@ -197,11 +197,13 @@ impl Runtime {
                         current = self.intrinsic_constructor_storage(name)?;
                         continue;
                     }
-                    if name == "Function.prototype" {
-                        if crate::native_symbol::FUNCTION_PROTOTYPE_NAMES.contains(&property) {
+                    if let Some(names) =
+                        crate::reflection::intrinsic_ancestors::readonly_ancestor_names(&current)
+                    {
+                        if names.contains(&property) {
                             return Ok(true);
                         }
-                        current = self.object_prototype_value()?;
+                        current = self.readonly_ancestor_parent(&current)?.unwrap();
                         continue;
                     }
                     if property == "prototype" && crate::wasm::constructor(name) {
@@ -338,6 +340,15 @@ impl Runtime {
         if property.len() > 1024 {
             return Err(JsError::resource("Property name exceeds limit"));
         }
+        if let Value::Object(id) | Value::Array(id) | Value::Function(id) = &object {
+            // forget_descriptor retains insertion order with a bounded scan.
+            let order = self.property_order.get(id).map_or(0, Vec::len);
+            self.property_work(
+                order
+                    .saturating_add(1)
+                    .saturating_mul(property.len().saturating_add(1)),
+            )?;
+        }
         if let Value::Object(id) | Value::Array(id) | Value::Function(id) = &object
             && !self.configurable_property(*id, property)
         {
@@ -377,7 +388,7 @@ impl Runtime {
                 if let Some(index) = array_index(property) {
                     if let Some(value) = values.get_mut(index) {
                         *value = Value::Undefined;
-                        self.array_holes.entry(id).or_default().insert(index);
+                        self.array_holes.entry(id).or_default().insert(index)?;
                     }
                 } else if let Some(properties) = self.array_properties.get_mut(&id) {
                     properties.remove(property);
@@ -520,18 +531,22 @@ impl Runtime {
                     }
                     current = parent;
                 }
-                Value::Function(_) => {
-                    return Ok(strict_equal(
-                        &Value::Native("Function.prototype"),
-                        &prototype,
-                    ));
+                Value::Function(id) => {
+                    let parent = self.function_internal_prototype(id)?;
+                    if strict_equal(&parent, &prototype) {
+                        return Ok(true);
+                    }
+                    current = parent;
                 }
                 Value::Native(name) => {
-                    if matches!(name, "Symbol" | "Number" | "Function.prototype") {
+                    if matches!(name, "Symbol" | "Number")
+                        || crate::reflection::intrinsic_ancestors::readonly_ancestor_names(&current)
+                            .is_some()
+                    {
                         let parent = if matches!(name, "Symbol" | "Number") {
                             Value::Native("Function.prototype")
                         } else {
-                            self.object_prototype_value()?
+                            self.readonly_ancestor_parent(&current)?.unwrap()
                         };
                         if strict_equal(&parent, &prototype) {
                             return Ok(true);
@@ -583,14 +598,22 @@ impl Runtime {
             if let Value::Native(name @ ("Symbol" | "Number")) = current {
                 current = self.intrinsic_constructor_storage(name)?;
             }
+            if let Value::Object(id) | Value::Function(id) | Value::Array(id) = current {
+                self.preflight_property_enumeration(id, bytes)?;
+            }
             let next = match current {
-                Value::Native("Function.prototype") => {
-                    own.extend(
-                        crate::native_symbol::FUNCTION_PROTOTYPE_NAMES
-                            .iter()
-                            .map(|key| ((*key).into(), false)),
-                    );
-                    Some(self.object_prototype_value()?)
+                ref value
+                    if crate::reflection::intrinsic_ancestors::readonly_ancestor_names(value)
+                        .is_some() =>
+                {
+                    let names =
+                        crate::reflection::intrinsic_ancestors::readonly_ancestor_names(value)
+                            .unwrap();
+                    let key_bytes = names.iter().map(|key| key.len()).sum::<usize>();
+                    self.property_work(key_bytes + names.len())?;
+                    self.charge_string(key_bytes)?;
+                    own.extend(names.iter().map(|key| ((*key).into(), false)));
+                    self.readonly_ancestor_parent(value)?
                 }
                 Value::Object(id) => {
                     let Some(Heap::Object(object)) = self.heap.get(id) else {
@@ -622,7 +645,8 @@ impl Runtime {
                     if function.has_prototype() && !function.properties.contains_key("prototype") {
                         own.push(("prototype".into(), false));
                     }
-                    self.class_static_parent(id)
+                    let parent = self.function_internal_prototype(id)?;
+                    (parent != Value::Null).then_some(parent)
                 }
                 Value::Array(id) => {
                     let Some(Heap::Array(values)) = self.heap.get(id) else {

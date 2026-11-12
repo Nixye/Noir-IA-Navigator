@@ -188,6 +188,7 @@ fn live_document_preserves_vm_globals_and_delivers_real_clicks_after_reflow() {
             Viewport {
                 width: 640.,
                 height: 480.,
+                view_context: None,
             },
             None,
         )
@@ -382,6 +383,7 @@ fn retained_animation_frames_preserve_batch_order_and_do_not_advance_timers() {
     let resized = Viewport {
         width: 640.,
         height: 480.,
+        view_context: None,
     };
     let reflow = session.render(resized, None).unwrap();
     assert_retained_animation_state(&reflow, pid, "pending", true, Some(50));
@@ -459,3 +461,18 @@ fn retained_animation_frames_reject_bad_timestamps_without_losing_the_session() 
     let idle = session.animation_frame(13., viewport).unwrap();
     assert_retained_animation_state(&idle, pid, "second12.5", false, None);
 }
+
+#[path = "support/classlist_recovery_r1.rs"]
+mod classlist_recovery_r1;
+
+#[path = "support/background_ownership_recovery_r2.rs"]
+mod background_ownership_recovery_r2;
+
+#[path = "support/live_collections_recovery_r3.rs"]
+mod live_collections_recovery_r3;
+
+#[path = "support/nodelist_foreach_recovery_r4.rs"]
+mod nodelist_foreach_recovery_r4;
+
+#[path = "support/bounding_panel_recovery_r5.rs"]
+mod bounding_panel_recovery_r5;

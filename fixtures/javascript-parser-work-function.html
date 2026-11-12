@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Trabalho de parsing limitado</title></head>
+<body><h1>Contadores agregados de parsing</h1><p id="result">Aguardando execução.</p><script>
+const half = '('.repeat(8192) + '1' + ')'.repeat(8192);
+const groupedResult = Function('a=' + half, 'return ' + half)();
+const body = '0;'.repeat(5000);
+const once = Function('for((function(){' + body + '})();false;){}return 7;')();
+document.getElementById('result').textContent = groupedResult === 1 && once === 7
+  ? 'PASS: grupos agregados e inicializador único com limites ativos.' : 'FAIL';
+</script></body></html>

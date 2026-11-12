@@ -153,20 +153,35 @@ impl Runtime {
         value: &Value,
         property: &str,
     ) -> Result<Option<Value>, JsError> {
-        let Some(text) = units(value) else {
+        if !matches!(value, Value::String(_) | Value::Utf16(_)) {
             return Ok(None);
-        };
+        }
         self.tick()?;
         if property == "length" {
-            return Ok(Some(Value::Number(text.len() as f64)));
+            let length = match value {
+                Value::String(text) => {
+                    self.string_copy_work(text.len())?;
+                    text.encode_utf16().count()
+                }
+                Value::Utf16(text) => text.len(),
+                _ => unreachable!(),
+            };
+            return Ok(Some(Value::Number(length as f64)));
         }
         if let Ok(index) = property.parse::<usize>()
             && index.to_string() == property
         {
-            return Ok(Some(if let Some(unit) = text.get(index) {
-                self.utf16_string(vec![*unit])?
-            } else {
-                Value::Undefined
+            let unit = match value {
+                Value::String(text) => {
+                    self.string_copy_work(text.len())?;
+                    text.encode_utf16().nth(index)
+                }
+                Value::Utf16(text) => text.get(index).copied(),
+                _ => unreachable!(),
+            };
+            return Ok(Some(match unit {
+                Some(unit) => self.utf16_string(vec![unit])?,
+                None => Value::Undefined,
             }));
         }
         if property == "constructor" {
@@ -255,11 +270,19 @@ impl Runtime {
             return Err(self.property_type_error("String method called on null or undefined"));
         }
         if matches!(property, "toString" | "valueOf") {
-            return if units(receiver).is_some() {
+            return if matches!(receiver, Value::String(_) | Value::Utf16(_)) {
                 Ok(receiver.clone())
             } else {
                 Err(self.property_type_error("String receiver required"))
             };
+        }
+        if property == "concat" {
+            let mut output = self.language_string(receiver.clone(), host)?;
+            for value in args {
+                let value = self.language_string(value, host)?;
+                output = self.concat_strings(output, value)?;
+            }
+            return Ok(output);
         }
         let text = self.string_units_coerce(receiver)?;
         let length = text.len();
@@ -386,14 +409,6 @@ impl Runtime {
                         Value::Number(found.map_or(-1., |index| index as f64))
                     },
                 )
-            }
-            "concat" => {
-                let mut output = text;
-                for value in args {
-                    let units = self.string_units_coerce(&value)?;
-                    append(&mut output, &units)?;
-                }
-                self.utf16_string(output)
             }
             "repeat" => {
                 let count = self.string_integer(args.first(), 0.)?;

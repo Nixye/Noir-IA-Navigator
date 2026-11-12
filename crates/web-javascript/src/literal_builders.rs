@@ -1,12 +1,42 @@
 //! Shared, bounded literal assembly for ordinary and suspended evaluation.
-use crate::{Heap, Host, JsError, Runtime, Value};
+use crate::{ArrayHoles, Heap, Host, JsError, Runtime, Value};
 use std::collections::BTreeSet;
 
 impl Runtime {
+    /// Finish an ordinary object entry after its expression has been evaluated.
+    /// The parser's object keys are already strings; computed keys remain a
+    /// separate, unsupported syntax rather than being evaluated out of order.
+    pub(super) fn literal_object_property(
+        &mut self,
+        object: &Value,
+        name: &str,
+        value: Value,
+        method: bool,
+        host: &mut impl Host,
+    ) -> Result<(), JsError> {
+        if method {
+            let function_name = self.string(name.to_owned())?;
+            self.set_unchecked(value.clone(), "name", function_name, host)?;
+            if let Value::Function(id) = &value {
+                self.property_metadata.entry(*id).or_default().insert(
+                    "name".into(),
+                    crate::descriptors::PropertyMetadata {
+                        writable: false,
+                        enumerable: false,
+                        configurable: true,
+                        accessor: None,
+                    },
+                );
+            }
+        }
+        self.create_data_property(object, name, value, host)?;
+        Ok(())
+    }
+
     pub(super) fn literal_array_append(
         &mut self,
         values: &mut Vec<Value>,
-        holes: &mut BTreeSet<usize>,
+        holes: &mut ArrayHoles,
         value: Value,
         hole: bool,
     ) -> Result<(), JsError> {
@@ -16,7 +46,7 @@ impl Runtime {
         }
         self.charge_array_slots(1)?;
         if hole {
-            holes.insert(values.len());
+            holes.insert(values.len())?;
         }
         values.push(if hole { Value::Undefined } else { value });
         Ok(())
@@ -60,7 +90,7 @@ impl Runtime {
     pub(super) fn literal_array_finish(
         &mut self,
         values: Vec<Value>,
-        holes: BTreeSet<usize>,
+        holes: ArrayHoles,
     ) -> Result<Value, JsError> {
         if values.len() > 4096 {
             return Err(JsError::resource("Array literal exceeds limit"));
@@ -165,8 +195,8 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
+    use crate::ArrayHoles;
     use crate::{ErrorKind, Host, JsError, Runtime, Value};
-    use std::collections::BTreeSet;
 
     struct Empty;
     impl Host for Empty {
@@ -302,7 +332,7 @@ mod tests {
             ..Runtime::default()
         };
         let mut values = Vec::new();
-        let mut holes = BTreeSet::new();
+        let mut holes = ArrayHoles::new();
         runtime
             .literal_array_append(&mut values, &mut holes, Value::Number(1.), false)
             .unwrap();

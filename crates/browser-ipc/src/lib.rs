@@ -7,7 +7,7 @@ mod dynamic_scripts;
 mod encoding;
 pub use dynamic_scripts::*;
 
-pub const PROTOCOL_VERSION: u32 = 9;
+pub const PROTOCOL_VERSION: u32 = 10;
 /// JavaScript's largest safe integer, in milliseconds. Frame
 /// timestamps are document-relative host pulses, not the logical timer clock.
 pub const MAX_ANIMATION_FRAME_TIMESTAMP_MS: f64 = 9_007_199_254_740_991.;
@@ -242,7 +242,7 @@ mod audio_tests {
             )
             .is_err()
         );
-        assert_eq!(PROTOCOL_VERSION, 9);
+        assert_eq!(PROTOCOL_VERSION, 10);
     }
 }
 
@@ -275,10 +275,51 @@ pub struct ScriptAsset {
     pub source: String,
 }
 
+/// CSS view origin is explicit: omitted context is unknown, never zero.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum ViewContext {
+    Origin,
+    Sampled {
+        scroll_x: f32,
+        scroll_y: f32,
+        clip_width: f32,
+        clip_height: f32,
+    },
+}
+
+pub fn validate_view_context(context: Option<ViewContext>) -> Result<(), String> {
+    if let Some(ViewContext::Sampled {
+        scroll_x,
+        scroll_y,
+        clip_width,
+        clip_height,
+    }) = context
+        && ([scroll_x, scroll_y]
+            .into_iter()
+            .any(|v| !v.is_finite() || !(0. ..=1_000_000.).contains(&v))
+            || [clip_width, clip_height]
+                .into_iter()
+                .any(|v| !v.is_finite() || !(0. ..=16384.).contains(&v) || v == 0.))
+    {
+        return Err("Invalid CSS view context".into());
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Viewport {
     pub width: f32,
     pub height: f32,
+    #[serde(default)]
+    pub view_context: Option<ViewContext>,
+}
+
+impl Viewport {
+    /// Explicit headless/new-document origin; Default remains unknown.
+    pub fn at_origin(mut self) -> Self {
+        self.view_context = Some(ViewContext::Origin);
+        self
+    }
 }
 
 impl Default for Viewport {
@@ -286,6 +327,7 @@ impl Default for Viewport {
         Self {
             width: 1024.0,
             height: 768.0,
+            view_context: None,
         }
     }
 }
@@ -797,7 +839,7 @@ mod collection_tests {
         };
         let bytes = frame(&response);
         let decoded: RenderResponse = read_message(&mut bytes.as_slice()).unwrap();
-        assert_eq!(decoded.protocol_version, 9);
+        assert_eq!(decoded.protocol_version, 10);
         assert_eq!(decoded.id, 42);
         assert_eq!(decoded.session_storage.len(), SESSION_STORAGE_MAX_ENTRIES);
         let p = decoded.result.unwrap();
@@ -806,3 +848,6 @@ mod collection_tests {
         assert_eq!(p.warnings.len(), MAX_PAGE_WARNINGS);
     }
 }
+
+#[cfg(test)]
+mod view_context_recovery_r5_tests;

@@ -52,14 +52,14 @@ pub(super) enum IteratorRecord {
 
 impl IteratorRecord {
     /// Heap edges retained by a suspended synchronous iterator.
-    pub(super) fn trace_values(&self, values: &mut Vec<Value>) {
+    pub(super) fn trace_values(&self, values: &mut impl Extend<Value>) {
         match self {
-            Self::Array(id, _) => values.push(Value::Array(*id)),
+            Self::Array(id, _) => values.extend([Value::Array(*id)]),
             Self::String(..) => {}
             Self::Values(items, _) => values.extend(items.iter().cloned()),
             Self::Custom { object, next, .. } => {
-                values.push(object.clone());
-                values.push(next.clone());
+                values.extend([object.clone()]);
+                values.extend([next.clone()]);
             }
         }
     }
@@ -312,29 +312,63 @@ impl Runtime {
         }
         Ok(values)
     }
+    #[cfg(test)]
     pub(super) fn argument_values(
         &mut self,
         args: &[Expr],
         scope: usize,
         host: &mut impl Host,
     ) -> Result<Vec<Value>, JsError> {
-        let mut values = Vec::new();
+        let mut values = self.argument_buffer(args)?;
         for expr in args {
             if let Expr::Spread(expr) = expr {
                 let source = self.eval(expr, scope, host)?;
-                let expanded = self.iterable_values(source, host)?;
-                if values.len() + expanded.len() > 32 {
-                    return Err(JsError::resource("Expanded argument limit exceeded"));
-                }
-                values.extend(expanded);
+                self.append_argument_spread(&mut values, source, host)?;
             } else {
-                if values.len() >= 32 {
-                    return Err(JsError::resource("Call argument limit exceeded"));
-                }
+                self.reserve_argument_slot(&mut values)?;
                 values.push(self.eval(expr, scope, host)?);
             }
         }
         Ok(values)
+    }
+    /// Reserve known-width storage only after the call target is captured.
+    /// Spread calls retain incremental growth and its existing copy-work cost.
+    pub(super) fn argument_buffer(&mut self, args: &[Expr]) -> Result<Vec<Value>, JsError> {
+        if args.iter().any(|arg| matches!(arg, Expr::Spread(_))) {
+            Ok(Vec::new())
+        } else {
+            // Parser-bypassing ASTs still stop before the 65th argument's effects.
+            self.value_buffer(args.len().min(crate::call_storage::MAX_CALL_ARGUMENTS))
+        }
+    }
+
+    /// ArgumentListEvaluation's existing IteratorNext/Close contract. This is
+    /// a guarded native bridge over Values, not recursive argument evaluation.
+    pub(super) fn append_argument_spread(
+        &mut self,
+        values: &mut Vec<Value>,
+        source: Value,
+        host: &mut impl Host,
+    ) -> Result<(), JsError> {
+        let mut iterator = self.iterator(source, host)?;
+        loop {
+            match self.iterator_next(&mut iterator, host) {
+                Ok(Some(value)) => {
+                    // One final next may be needed to observe done at the width
+                    // boundary. Do not materialize a 4096-item intermediate or
+                    // run page cleanup after fatal allocation/width Resource.
+                    self.reserve_argument_slot(values)?;
+                    values.push(value);
+                }
+                Ok(None) => return Ok(()),
+                Err(error) => {
+                    if error.kind != crate::ErrorKind::Resource {
+                        let _ = self.iterator_close(&mut iterator, host);
+                    }
+                    return Err(error);
+                }
+            }
+        }
     }
     fn destructuring_place(
         &mut self,
@@ -485,28 +519,45 @@ impl Runtime {
         kind: Declaration,
         scope: usize,
     ) -> Result<(), JsError> {
-        let mut names = Vec::new();
-        pattern.names(&mut names);
-        if names.len() > 128 {
-            return Err(JsError::resource("Pattern binding limit exceeded"));
-        }
         let target = if kind == Declaration::Var {
             self.function_scope(scope)
         } else {
             scope
         };
-        for name in names {
-            if kind == Declaration::Var && self.scopes[target].bindings.contains_key(&name) {
-                continue;
+        let mut width = 0usize;
+        let mut count = 0usize;
+        let mut bytes = 0usize;
+        let mut new_names = BTreeSet::new();
+        pattern.visit_names(&mut |name| {
+            width += 1;
+            if width > 128 {
+                return Err(JsError::resource("Pattern binding limit exceeded"));
+            }
+            if kind != Declaration::Var
+                || (!self.scopes[target].bindings.contains_key(name) && new_names.insert(name))
+            {
+                count += 1;
+                bytes = bytes
+                    .checked_add(name.len())
+                    .ok_or_else(|| JsError::resource("Binding byte budget overflow"))?;
+            }
+            Ok(())
+        })?;
+        if self.scopes[target].bindings.len().saturating_add(count) > 1024 {
+            return Err(JsError::resource("Bindings per scope exceed 1024"));
+        }
+        self.preflight_binding_storage(count, bytes)?;
+        pattern.visit_names(&mut |name| {
+            if kind == Declaration::Var && self.scopes[target].bindings.contains_key(name) {
+                return Ok(());
             }
             self.declare(
                 target,
-                &name,
+                name,
                 kind != Declaration::Const,
                 kind == Declaration::Var,
-            )?;
-        }
-        Ok(())
+            )
+        })
     }
     pub(super) fn bind_declared_pattern(
         &mut self,
@@ -574,9 +625,10 @@ impl Runtime {
                             if tail.len() >= 4096 {
                                 return Err(JsError::resource("Rest binding exceeds array limit"));
                             }
+                            self.reserve_value_slot(&mut tail, 4096)?;
                             tail.push(value);
                         }
-                        let tail = Value::Array(self.allocate(Heap::Array(tail))?);
+                        let tail = Value::Array(self.allocate_reserved(Heap::Array(tail))?);
                         self.bind_pattern_to(rest, tail, scope, target, host)?;
                     }
                     Ok(())

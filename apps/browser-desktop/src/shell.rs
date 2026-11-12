@@ -6,7 +6,9 @@ use crate::{
     theme::{self, ACCENT, AMBER, BG, MUTED, PANEL, SURFACE, TEXT},
 };
 use browser_config::{MAX_TABS, MAX_TOTAL_TABS, Profile};
-use browser_ipc::{ControlKind, DisplayItem, DocumentInput, FormInfo, RenderedPage, Viewport};
+use browser_ipc::{
+    ControlKind, DisplayItem, DocumentInput, FormInfo, RenderedPage, ViewContext, Viewport,
+};
 use eframe::egui::{self, Align2, Color32, FontId, Rect, RichText, Sense, Vec2};
 use std::{
     collections::HashMap,
@@ -141,6 +143,14 @@ struct Pending {
     started: Instant,
     viewport: Viewport,
 }
+#[derive(Clone, Copy)]
+struct ViewSample {
+    document: u64,
+    width: f32,
+    height: f32,
+    zoom: f32,
+    context: ViewContext,
+}
 struct Tab {
     id: u64,
     generation: u64,
@@ -160,7 +170,8 @@ struct Tab {
     error: Option<String>,
     textures: HashMap<String, egui::TextureHandle>,
     viewport: Viewport,
-    rendered_width: f32,
+    rendered_dimensions: Option<(f32, f32)>,
+    view_sample: Option<ViewSample>,
     needs_initial_load: bool,
     // Unlike generation, this changes only on accepted document navigation.
     committed_document: u64,
@@ -229,7 +240,8 @@ impl Tab {
             error: None,
             textures: HashMap::new(),
             viewport: Viewport::default(),
-            rendered_width: 0.,
+            rendered_dimensions: None,
+            view_sample: None,
             needs_initial_load: !home,
             committed_document: 0,
             displayed_document: None,
@@ -307,6 +319,67 @@ impl Tab {
             self.pending_scroll = None;
         }
     }
+    // Only a measurement from this UI pass can describe viewport coordinates.
+    fn capture_view(&mut self, offset: Vec2, content: Vec2, clip: Vec2, zoom: f32) {
+        self.view_sample = None;
+        if !self.document_scroll_is_current()
+            || self.rendered_dimensions != Some((self.viewport.width, self.viewport.height))
+            || !zoom.is_finite()
+            || zoom <= 0.
+            || [offset.x, offset.y, content.x, content.y, clip.x, clip.y]
+                .into_iter()
+                .any(|v| !v.is_finite() || v < 0.)
+        {
+            return;
+        }
+        let position = HistoryScroll::from_display(offset, content, clip, zoom);
+        let context = ViewContext::Sampled {
+            scroll_x: position.x,
+            scroll_y: position.y,
+            clip_width: clip.x / zoom,
+            clip_height: clip.y / zoom,
+        };
+        if browser_ipc::validate_view_context(Some(context)).is_err() {
+            return;
+        }
+        // Capture follows painting/restoration; never publish an unconsumed restore.
+        self.capture_scroll(position);
+        if self.pending_scroll.is_none() {
+            self.view_sample = Some(ViewSample {
+                document: self.committed_document,
+                width: self.viewport.width,
+                height: self.viewport.height,
+                zoom,
+                context,
+            });
+        }
+    }
+    fn timer_view_ready(&self, zoom: f32) -> bool {
+        matches!(
+            self.operation_viewport(Navigation::Tick(0), zoom)
+                .view_context,
+            Some(ViewContext::Sampled { .. })
+        )
+    }
+    fn operation_viewport(&self, navigation: Navigation, zoom: f32) -> Viewport {
+        let mut viewport = self.viewport;
+        viewport.view_context = if !retains_session(navigation) {
+            Some(ViewContext::Origin)
+        } else if self.document_scroll_is_current() && self.pending_scroll.is_none() {
+            self.view_sample
+                .filter(|sample| {
+                    sample.document == self.committed_document
+                        && sample.width == viewport.width
+                        && sample.height == viewport.height
+                        && sample.zoom == zoom
+                        && self.rendered_dimensions == Some((viewport.width, viewport.height))
+                })
+                .map(|sample| sample.context)
+        } else {
+            None
+        };
+        viewport
+    }
     fn commit(&mut self, url: String, title: String, nav: Navigation) {
         if !matches!(nav, Navigation::Tick(_) | Navigation::Frame(_)) {
             self.generation = self.generation.saturating_add(1);
@@ -345,6 +418,8 @@ impl Tab {
             }
             self.committed_document = self.committed_document.wrapping_add(1);
             self.displayed_document = None;
+            self.view_sample = None;
+            self.rendered_dimensions = None;
             self.pending_scroll = if url == HOME || url == SETTINGS {
                 None
             } else {
@@ -460,7 +535,7 @@ impl Noir {
                             .as_ref()
                             .is_some_and(|current| Arc::ptr_eq(current, session))
                 });
-        if !displayed || !tab.animation_frame_ready() {
+        if !displayed || !tab.animation_frame_ready() || !tab.timer_view_ready(self.zoom) {
             return;
         }
         // Real elapsed time keeps hidden/inactive intervals without replay,
@@ -795,7 +870,7 @@ impl Noir {
             }
         };
         let (sender, receiver) = mpsc::sync_channel(1);
-        let viewport = tab.viewport;
+        let viewport = tab.operation_viewport(navigation, self.zoom);
         let retained = matches!(
             navigation,
             Navigation::Reflow
@@ -971,11 +1046,22 @@ impl Noir {
         if let Some((target, nav)) = queued {
             self.navigate(target, nav, ctx);
         }
+        if self.tabs.iter().any(|t| t.pending.is_some())
+            || self
+                .parked
+                .values()
+                .any(|(tabs, _)| tabs.iter().any(|t| t.pending.is_some()))
+        {
+            ctx.request_repaint_after(Duration::from_millis(40));
+        }
+    }
+    fn offer_timers(&mut self, ctx: &egui::Context) {
         let tab = &self.tabs[self.active];
         if self.ai_operation.is_none()
             && !self.ai.browser_busy()
             && tab.pending.is_none()
             && tab.error.is_none()
+            && tab.timer_view_ready(self.zoom)
             && let Some(delay) = tab.page.as_ref().and_then(|page| page.next_timer_ms)
         {
             let elapsed = tab.timer_mark.elapsed().as_millis().min(60000) as u64;
@@ -984,14 +1070,6 @@ impl Noir {
             } else {
                 ctx.request_repaint_after(Duration::from_millis((delay - elapsed).clamp(16, 1000)));
             }
-        }
-        if self.tabs.iter().any(|t| t.pending.is_some())
-            || self
-                .parked
-                .values()
-                .any(|(tabs, _)| tabs.iter().any(|t| t.pending.is_some()))
-        {
-            ctx.request_repaint_after(Duration::from_millis(40));
         }
     }
     fn history(&mut self, forward: bool, ctx: &egui::Context) {
@@ -2585,10 +2663,10 @@ impl Noir {
                 }
                 let width = (ui.available_width() / self.zoom - 12.).max(64.);
                 tab.viewport.width = width;
-                if (tab.rendered_width - width).abs() > 2. {
+                tab.viewport.height = (ui.available_height() / self.zoom).clamp(64., 8192.);
+                if tab.rendered_dimensions != Some((width, tab.viewport.height)) {
                     reflow = tab.document.is_some() && tab.pending.is_none();
                 }
-                tab.viewport.height = (ui.available_height() / self.zoom).clamp(64., 8192.);
                 let restore = tab.scroll_to_restore();
                 if let Some(page) = &tab.page {
                     let mut scroll = egui::ScrollArea::both()
@@ -2833,6 +2911,8 @@ impl Noir {
                         ui.ctx().request_repaint();
                     }
                     tab.capture_scroll(position);
+                    tab.capture_view(output.state.clamped_offset(), output.content_size,
+                        output.inner_rect.size(), zoom);
                 } else if tab.error.is_none() {
                     ui.centered_and_justified(|ui| {
                         ui.spinner();
@@ -2872,6 +2952,10 @@ impl eframe::App for Noir {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.priority_work_this_pass = false;
+        // Before this pass's ScrollArea, retained work must use Unknown.
+        for tab in &mut self.tabs {
+            tab.view_sample = None;
+        }
         self.displayed_frame_target = None;
         ctx.style_mut_of(egui::Theme::Dark, |s| {
             s.animation_time = if self.profile.reduce_motion { 0. } else { 0.22 }
@@ -2981,6 +3065,7 @@ impl eframe::App for Noir {
             }
             ctx.request_repaint_after(Duration::from_millis(80));
         }
+        self.offer_timers(&ctx);
         self.offer_animation_frame(&ctx);
     }
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
@@ -3075,7 +3160,6 @@ fn poll_tab(tab: &mut Tab) -> bool {
                 }) {
                     tab.generation = tab.generation.saturating_add(1);
                 }
-                tab.rendered_width = pending.viewport.width;
                 tab.commit(
                     document.url.clone(),
                     if page.title.is_empty() {
@@ -3112,6 +3196,8 @@ fn poll_tab(tab: &mut Tab) -> bool {
                         })
                         .collect();
                 }
+                tab.rendered_dimensions = Some((pending.viewport.width, pending.viewport.height));
+                tab.view_sample = None;
                 tab.page = Some(page);
                 tab.displayed_document = Some(tab.committed_document);
                 tab.matches.invalidate();
@@ -3989,6 +4075,214 @@ mod tests {
     }
     fn position(x: f32, y: f32) -> HistoryScroll {
         HistoryScroll::from_display(Vec2::new(x, y), Vec2::splat(4000.), Vec2::splat(500.), 1.)
+    }
+    fn sampled_tab() -> Tab {
+        let mut tab = Tab::new(1, HOME.into());
+        commit_document(&mut tab, "noir:test", Navigation::Push);
+        tab.rendered_dimensions = Some((tab.viewport.width, tab.viewport.height));
+        tab
+    }
+    fn sample_view(tab: &mut Tab, zoom: f32) {
+        tab.capture_view(
+            Vec2::new(80., 200.),
+            Vec2::new(4000., 6000.),
+            Vec2::new(600., 800.),
+            zoom,
+        );
+    }
+    #[test]
+    fn r5_view_sample_uses_actual_clip_css_and_zoom() {
+        let mut tab = sampled_tab();
+        sample_view(&mut tab, 2.);
+        let expected = Some(ViewContext::Sampled {
+            scroll_x: 40.,
+            scroll_y: 100.,
+            clip_width: 300.,
+            clip_height: 400.,
+        });
+        assert_eq!(
+            tab.operation_viewport(Navigation::Event(7), 2.)
+                .view_context,
+            expected
+        );
+        assert_eq!(
+            tab.operation_viewport(Navigation::Tick(8), 2.).view_context,
+            expected
+        );
+        assert_eq!(
+            tab.operation_viewport(Navigation::Frame(9.), 2.)
+                .view_context,
+            expected
+        );
+        assert_eq!(
+            tab.history[tab.history_index].scroll,
+            HistoryScroll { x: 40., y: 100. }
+        );
+        assert!(tab.timer_view_ready(2.));
+    }
+    #[test]
+    fn r5_view_unknown_until_restoration_is_painted_and_sampled() {
+        let mut tab = sampled_tab();
+        assert!(tab.pending_scroll.is_some());
+        assert!(!tab.timer_view_ready(1.));
+        assert_eq!(
+            tab.operation_viewport(Navigation::Event(1), 1.)
+                .view_context,
+            None
+        );
+        sample_view(&mut tab, 1.);
+        assert!(tab.pending_scroll.is_none());
+        assert!(tab.timer_view_ready(1.));
+        tab.view_sample = None; // next UI pass, before ScrollArea.show
+        assert!(!tab.timer_view_ready(1.));
+        assert_eq!(
+            tab.operation_viewport(Navigation::Tick(1), 1.).view_context,
+            None
+        );
+    }
+    #[test]
+    fn r5_view_clip_is_measured_from_scrollarea_not_layout_viewport() {
+        let ctx = egui::Context::default();
+        let mut tab = sampled_tab();
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(500., 400.))),
+            ..Default::default()
+        };
+        let mut frame = ctx.run_ui(input, |ui| {
+            let output = egui::ScrollArea::both()
+                .auto_shrink([false, false])
+                .scroll_offset(Vec2::new(60., 90.))
+                .show(ui, |ui| {
+                    ui.allocate_exact_size(Vec2::splat(2000.), Sense::hover());
+                });
+            tab.capture_view(
+                output.state.clamped_offset(),
+                output.content_size,
+                output.inner_rect.size(),
+                2.,
+            );
+            let Some(ViewContext::Sampled {
+                clip_width,
+                clip_height,
+                ..
+            }) = tab
+                .operation_viewport(Navigation::Event(1), 2.)
+                .view_context
+            else {
+                panic!("real ScrollArea sample expected");
+            };
+            assert_eq!(clip_width, output.inner_rect.width() / 2.);
+            assert_eq!(clip_height, output.inner_rect.height() / 2.);
+            assert_ne!(clip_width, tab.viewport.width);
+            assert_ne!(clip_height, tab.viewport.height);
+        });
+        frame.textures_delta.clear();
+    }
+    #[test]
+    fn r5_view_new_documents_use_origin_but_retained_unknown_never_does() {
+        let tab = sampled_tab();
+        for nav in [
+            Navigation::Push,
+            Navigation::Refresh,
+            Navigation::Traverse(0),
+        ] {
+            assert_eq!(
+                tab.operation_viewport(nav, 1.).view_context,
+                Some(ViewContext::Origin)
+            );
+        }
+        for nav in [
+            Navigation::Reflow,
+            Navigation::Event(1),
+            Navigation::Input(1),
+            Navigation::Change(1),
+            Navigation::Tick(1),
+            Navigation::Frame(1.),
+        ] {
+            assert_eq!(tab.operation_viewport(nav, 1.).view_context, None);
+        }
+    }
+    #[test]
+    fn r5_view_invalidated_by_zoom_layout_and_document() {
+        let mut tab = sampled_tab();
+        sample_view(&mut tab, 1.);
+        assert!(!tab.timer_view_ready(2.));
+        tab.viewport.width += 0.5;
+        assert!(!tab.timer_view_ready(1.));
+        sample_view(&mut tab, 1.);
+        assert!(tab.view_sample.is_none());
+        tab.rendered_dimensions = Some((tab.viewport.width, tab.viewport.height));
+        sample_view(&mut tab, 1.);
+        assert!(tab.timer_view_ready(1.));
+        tab.viewport.height += 1.;
+        assert!(!tab.timer_view_ready(1.));
+        tab.viewport.height -= 1.;
+        tab.committed_document += 1;
+        assert!(!tab.timer_view_ready(1.));
+        tab.displayed_document = Some(tab.committed_document);
+        assert!(!tab.timer_view_ready(1.)); // old generation sample still rejected
+    }
+    #[test]
+    fn r5_view_transition_and_queued_work_cannot_reuse_sample() {
+        let mut tab = sampled_tab();
+        sample_view(&mut tab, 1.);
+        tab.queued = Some(("other".into(), Navigation::Push));
+        assert!(!tab.timer_view_ready(1.));
+        sample_view(&mut tab, 1.);
+        assert!(tab.view_sample.is_none());
+        tab.queued = None;
+        sample_view(&mut tab, 1.);
+        tab.commit("other".into(), "other".into(), Navigation::Push);
+        assert!(tab.view_sample.is_none());
+        assert!(tab.rendered_dimensions.is_none());
+        assert!(!tab.timer_view_ready(1.));
+    }
+    #[test]
+    fn r5_view_rejects_invalid_measurements_without_fabricating_origin() {
+        for (offset, clip, zoom) in [
+            (Vec2::ZERO, Vec2::ZERO, 1.),
+            (Vec2::new(f32::NAN, 0.), Vec2::splat(100.), 1.),
+            (Vec2::ZERO, Vec2::splat(100.), 0.),
+            (Vec2::ZERO, Vec2::splat(20000.), 1.),
+            (Vec2::ZERO, Vec2::splat(f32::INFINITY), 1.),
+        ] {
+            let mut tab = sampled_tab();
+            sample_view(&mut tab, 1.);
+            tab.capture_view(offset, Vec2::splat(4000.), clip, zoom);
+            assert!(tab.view_sample.is_none());
+            assert!(!tab.timer_view_ready(1.));
+        }
+    }
+    #[test]
+    fn r5_view_clamps_to_current_content_and_preserves_fractional_values() {
+        let mut tab = sampled_tab();
+        tab.capture_view(
+            Vec2::new(200., 199.5),
+            Vec2::new(400., 800.),
+            Vec2::new(350., 400.),
+            2.,
+        );
+        assert_eq!(
+            tab.operation_viewport(Navigation::Event(1), 2.)
+                .view_context,
+            Some(ViewContext::Sampled {
+                scroll_x: 25.,
+                scroll_y: 99.75,
+                clip_width: 175.,
+                clip_height: 200.
+            })
+        );
+        tab.capture_view(Vec2::splat(900.), Vec2::splat(100.), Vec2::splat(400.), 2.);
+        assert_eq!(
+            tab.operation_viewport(Navigation::Event(1), 2.)
+                .view_context,
+            Some(ViewContext::Sampled {
+                scroll_x: 0.,
+                scroll_y: 0.,
+                clip_width: 200.,
+                clip_height: 200.
+            })
+        );
     }
     #[test]
     fn history_restores_each_entry_in_both_axes_once() {

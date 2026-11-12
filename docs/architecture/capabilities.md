@@ -1,5 +1,68 @@
 # Matriz de capacidades — Noir 0.9.0
 
+## Continuação V13 via R1–R4: border-box recovery-r5
+
+Registro de autoria em 2026-11-12, antes da validação. O [bloco R5](../releases/bounding-panel-recovery-r5.md)
+mede caixas principais reais por getBoundingClientRect e devolve snapshot
+ordinário de oito números. Contexto host Origin/Sampled é explícito; Unknown
+não simula zero. Fixture local ancora popup com frações e CSS/RAF/click.
+Recortes inline/tabelas/DOMRect completo permanecem limitados. Resultados
+posteriores e pins pertencem ao relatório externo, sem PASS antecipado.
+V14–49 não foram recuperadas; nenhuma validação de GUI/Windows/sites públicos
+ou nova prova de sandbox é alegada. Histórico abaixo permanece contextualizado.
+
+
+## Continuação V13 via R1–R3: NodeList recovery-r4
+
+Registro de autoria em 2026-11-12, antes da validação. O [bloco R4](../releases/nodelist-foreach-recovery-r4.md)
+unifica NodeList.item para snapshot/viva e expõe forEach compartilhado com o
+Native genérico da VM, com comprimento capturado e acesso atual por índice.
+Fixture local inicializa filtros/eventos e verifica retenção em RAF/click.
+Resultados posteriores e pins pertencem ao relatório externo do checkpoint,
+sem PASS antecipado. Uma limitação/oráculo R3 de snapshot sem item é migrada
+explicitamente; registros anteriores permanecem históricos. V14–49 não foram
+recuperadas. Não se alega validação de GUI/Windows/sites públicos ou ECMA completo.
+
+
+## Continuação V13 via R1/R2: coleções vivas recovery-r3
+
+Registro de autoria em 2026-11-12, antes da validação. O [bloco R3](../releases/live-collections-recovery-r3.md)
+acrescenta children/childNodes vivos, identidade estável por raiz/tipo e leituras
+atualizadas após edição; querySelectorAll permanece snapshot. Fixture e testes
+locais cobrem lista editável, jobs/RAF, geometria e worker sem replay. Resultados
+posteriores e pins pertencem ao relatório externo do checkpoint, sem PASS
+antecipado. V14–49 não foram recuperadas; GUI/Windows/sites públicos não são
+alegados como validados. Seções e manifestos herdados permanecem históricos.
+
+
+## Continuação V13 via R1: fundos recovery-r2
+
+Registro de autoria de 2026-11-12, antes da validação. O [bloco R2](../releases/background-ownership-recovery-r2.md)
+separa o fundo da caixa do fundo de seu texto direto, preservando camadas
+inline legítimas e CSS computado. Novos oráculos locais cobrem alpha, pixels
+CPU, classList/RAF, clipping e worker sem replay. Resultados posteriores e pins
+pertencem ao relatório externo do checkpoint; autoria não antecipa PASS.
+
+É continuação nova da V13 restaurada via R1, não recuperação de V14–49.
+Sem alegação de GUI, Windows, GPU, Google ou sites públicos validados.
+As seções seguintes e manifestos herdados conservam seu contexto histórico.
+
+
+## Continuação nova da base V13: classList recovery-r1
+
+**Autoria local, NOT_RUN.** Este checkout continua a V13 restaurada; não
+recupera nem alega validação de V14–49. O [novo bloco classList](../releases/classlist-recovery-r1.md)
+acrescenta DOMTokenList vivo e limitado, com fixture inline de menu/aba/tema e
+oráculos de CSS/frame, RAF e worker retido. Gates aguardam o bloco completo.
+Não há validação de GUI, Windows, Google ou sites públicos nesta autoria.
+
+SOURCE-MANIFEST.json (snapshot histórico de 933 arquivos) e
+docs/source-snapshot-2026-11-09.md são evidências históricas, não validam a
+base V13 de 1061 arquivos nem esta continuação. O novo manifesto externo do
+checkpoint será identificado quando gerado e verificado. Seções anteriores
+abaixo conservam o significado histórico de suas afirmações e resultados.
+
+
 ## Estado atual: validação e frames — 2026-11-08
 
 A instrução posterior autoriza testes e ciclos de correção. Item 19: **validação em andamento**; itens 1–18 continuam abertos/parciais. O [baseline funcional](../validation/2026-11-08-functional-baseline.md) registra comandos e resultados novos. As seções anteriores desta rodada abaixo são históricas: o adiamento e a ausência de testes valiam naquelas entregas e não são reescritos como sucesso funcional.
@@ -97,7 +160,7 @@ Os incrementos da 0.9 foram implementados para compilação e entrega, com teste
 | [Ciclo de vida/defer: item 4](../releases/2026-11-08-document-lifecycle.md) | readyState, readystatechange, inicialização única e fila DOM de módulos sem async/clássicos externos defer antes de DOMContentLoaded; complete precede load/timers zero | Implementação parcial; async externo/módulo recusado, clássico inline ignora async/defer; sem parser incremental, TLA, novos carregamentos ou event loop Web completo; load limitado ao pipeline; sem validação funcional |
 | [Eventos programáticos: item 5](../specifications/events-subset.md) | Implementação parcial: Event/CustomEvent host e dispatchEvent síncrono em Window/Document/Node, inclusive destacados, com fases, cancelamento e detail retido | Revisão textual concluída/checagem estática aprovada, sem validação funcional; sem EventTarget independente, protótipos DOM, instanceof, subclasses host ou ações padrão nativas; limites compartilhados de 256 eventos e 128 listeners |
 | Eventos/timers | capture/once/passive, propagação por fases, estado Event persistente e stop/preventDefault; handlers onerror também em nós/Document | Cancelamento não alcança ações nativas; AbortSignal, objetos handleEvent e Shadow DOM ausentes; Event/CustomEvent limitados no item 5; 128 listeners, 256 eventos retidos; resource errors não suprimíveis |
-| Funções adaptadas | call/apply/bind como valores, Function.prototype, funções vinculadas com argumentos/this e construção limitada | Até 32 argumentos e orçamento agregado de posições; reflexão/protótipos nativos limitados; contexto em erros de chamada não prova correção de todos os scripts |
+| Funções adaptadas | call/apply/bind como valores, Function.prototype, funções vinculadas com argumentos/this e construção limitada | Até 64 argumentos com reservas prévias no orçamento agregado compartilhado de posições; reflexão/protótipos nativos limitados; contexto em erros de chamada não prova correção de todos os scripts |
 | Formulários/Web APIs | Campos de texto, senha, textarea, checkbox, select simples, aparência CSS, botões e envio GET; Enter com submit padrão no subconjunto | Fonte/caixa de botões isoladas da shell; sem POST, validação completa, ordem DOM completa em layouts reordenados, Fetch, workers, IndexedDB ou dispositivos |
 | IA incluída | Qwen2.5-1.5B Q4_K_M ativo por padrão em processo CPU separado | Pode errar; contexto 4096 tokens; prontidão depende da carga/verificação |
 | Configuração de IA | Modelo incluído, GGUF próprio, endpoint local ou provedor HTTPS por chave | Chaves no cofre do sistema; provedor depende da configuração do usuário |
@@ -142,7 +205,7 @@ Arrays/templates usam helpers compartilhados, com ordem esquerda para direita, h
 
 ## Acessos resumíveis: incremento 18 (2026-11-08)
 
-Leituras ordinárias Member e callees de chamadas ordinárias admitem base/chave/callee com await/yield, sem replay. Base e chave são avaliadas uma vez; a expressão-chave antecede a verificação nullish, mas ToPropertyKey vem depois dela. Getters executam antes dos argumentos; alvos não chamáveis falham depois deles, incluindo TypeError capturável para primitivos e Host não chamáveis na chamada comum. Receiver e alvo capturados são preservados, símbolos não são convertidos em strings e a ponte Host nomeada LegacyMethod mantém suas limitações. A correção de ordem nullish/coerção também vale para leitura Member comum. A coleta explícita não coleta durante qualquer retomada ativa, inclusive em callback Host direto com profundidades zeradas, preservando escopos e frames da máquina fora do mapa. Até 32 argumentos, interrompendo antes do 33º, com raízes de GC para valores parciais/continuação, teto global de 4096 raízes deduplicadas e profundidade combinada de 256. Recursos permanecem fatais. O incremento 18 não ampliou LHS/update/delete (Member LHS/update ordinários são tratados no incremento 19 abaixo), private/super/new/eval direto, spread de chamada, objetos/classes, padrões/cases/labels/import, top-level await ou módulos assíncronos. Implementação parcial, revisão textual concluída e checagem estática aprovada, sem validação funcional. O item 1 permanece ABERTO. Veja [contrato e limites](../releases/2026-11-08-resumable-access.md).
+Leituras ordinárias Member e callees de chamadas ordinárias admitem base/chave/callee com await/yield, sem replay. Base e chave são avaliadas uma vez; a expressão-chave antecede a verificação nullish, mas ToPropertyKey vem depois dela. Getters executam antes dos argumentos; alvos não chamáveis falham depois deles, incluindo TypeError capturável para primitivos e Host não chamáveis na chamada comum. Receiver e alvo capturados são preservados, símbolos não são convertidos em strings e a ponte Host nomeada LegacyMethod mantém suas limitações. A correção de ordem nullish/coerção também vale para leitura Member comum. A coleta explícita não coleta durante qualquer retomada ativa, inclusive em callback Host direto com profundidades zeradas, preservando escopos e frames da máquina fora do mapa. Até 64 argumentos, interrompendo antes do 65º, com raízes de GC para valores parciais/continuação, teto global de 4096 raízes deduplicadas e profundidade combinada de 256. Recursos permanecem fatais. O incremento 18 não ampliou LHS/update/delete (Member LHS/update ordinários são tratados no incremento 19 abaixo), private/super/new/eval direto, spread de chamada, objetos/classes, padrões/cases/labels/import, top-level await ou módulos assíncronos. Implementação parcial, revisão textual concluída e checagem estática aprovada, sem validação funcional. O item 1 permanece ABERTO. Veja [contrato e limites](../releases/2026-11-08-resumable-access.md).
 
 ## Atribuições resumíveis: incremento 19 do item 1 (2026-11-08)
 
@@ -193,3 +256,65 @@ Object.defineProperty/defineProperties no global usam propriedades da VM, com me
 ## Construtor Number com descritores — 2026-11-09
 
 Number expõe propriedades VM com constantes e flags reais, accessors string/símbolo, operações Object/Reflect e níveis de integridade. Identidade callable, aliases parseInt/parseFloat, GC e rollback são preservados. Apenas Number e Symbol recebem esse armazenamento; demais Native/Host continuam limitados. Quotas existentes não mudam. [Contrato e fixture](../releases/2026-11-09-number-constructor-descriptors.md).
+
+
+## Armazenamento JavaScript com quotas agregadas
+
+Dicionários ordinários podem conter até 4096 nomes por owner, limitados também por reservas, bytes e trabalho cumulativos da VM. Arrays admitem comprimento 8192 sob o mesmo teto agregado de 65536 posições e usam bitmap compacto para holes. Não mudam autoridade do host, IPC ou sandbox. Limites independentes de parser, iteração, enumeração, strings, heap e instruções continuam aplicados.
+
+Contratos: [propriedades](../specifications/property-budgets.md), [arrays](../specifications/array-storage.md), [ADR 0025](../adr/0025-cumulative-property-and-array-storage.md). Fixtures sintéticas locais não são prova de sites funcionais.
+
+## Protótipos de funções VM — 2026-11-09
+
+Object/Reflect.setPrototypeOf alteram objetos ordinários e funções VM, com ciclo/não extensibilidade, receivers, símbolos, instanceof, bind, GC e rollback coerentes. Leitura iterativa usa um limite único de 64 passos. Arrays, construtores class e Native/Host genéricos continuam sem mutação de protótipo. [Contrato e fixture](../releases/2026-11-09-function-prototype-mutation.md).
+
+### Pilha JavaScript limitada
+
+Dispatchers do parser e da VM usam helpers pequenos; a coleta de declarações e os validadores de strict mode/escopos são iterativos. Regressões executam em threads de 1 MiB, sem ampliar a pilha de produção. Expressões têm profundidade estrutural máxima de 64 e a execução admite até 64 statements simultaneamente ativos, inclusive entre chamadas. Exaustão retorna `Resource` fatal. Detalhes: [nota da pilha limitada](../releases/2026-11-09-bounded-native-stack.md).
+
+
+### Strings concatenadas e eval com reserva limitada
+
++ e String.concat montam resultados de até 128 KiB com reserva anterior à cópia e trabalho cobrado por blocos, sem ampliar os 4 MiB cumulativos de strings. UTF-8 não exige materialização temporária em UTF-16; surrogates e ordem de coerção são preservados. Eval aceita até 128 KiB, sem cópia inicial de UTF-8, mantendo 256 KiB cumulativos e todas as quotas de parser/execução. Não amplia Function, host, regex, JSON ou demais produtores de strings. [Escopo e validação](../releases/2026-11-09-bounded-string-concatenation.md).
+
+
+### Lexer compacto e lookahead de parênteses
+
+Pontuação estática e payload de RegExp em caixa reduzem o slot x64 de 64 para 48 bytes. Até 40.960 slots, mais EOF, cabem abaixo do teto anterior de metadados; payloads e pushes de contexto continuam limitados a 32.768. Ligações de parênteses sem alocação evitam analisar agrupamentos como parâmetros descartados. Fonte, visitas do parser, profundidade e quotas da VM continuam independentes. Não há garantia de memória menor para toda fonte, nem suporte irrestrito a sites. [Contrato e fixture](../releases/2026-11-09-compact-lexer.md).
+
+
+### Chamadas reservadas e agrupamentos iterativos
+
+JavaScript aceita até 64 parâmetros/argumentos, com reserva anterior aos buffers e cópias no teto compartilhado de 65.536 células de Value. Bindings conservam seus limites de scope/total e cobram bytes copiados. Grupos do parser retomam seus tails sem recursão redundante, com visitas cumulativas próprias e profundidade real de AST, além do guard dos caminhos ainda recursivos. Não amplia pilha, autoridade do host ou quotas WebAssembly. [Escopo e verificação](../releases/2026-11-09-bounded-call-lists-and-parser-groups.md).
+
+### Continuações Pratt e sequências de vírgulas
+
+O parser agenda argumentos, índices, prefixos e ramos por continuações limitadas, compartilhadas entre reentrâncias e templates. Espinhas esquerdas de vírgula com três ou mais operandos usam sequência imutável com altura verificada, até 4096 operandos e reserva cumulativa própria de armazenamento. Avaliação síncrona e suspensa percorrem a sequência sem recriar os ancestrais removidos, conservando ordem, referências e cobrança de trabalho. Profundidade física da AST, guard nativo, fonte, tokens, visitas e demais quotas permanecem independentes. Não inclui achatamento de outros operadores nem demonstra compatibilidade geral com sites. [Pratt](../releases/2026-11-09-bounded-pratt-continuations.md), [sequências](../releases/2026-11-09-flat-comma-sequences.md) e fixture javascript-expression-storage.html.
+
+### Trabalho de parsing agregado e for sem reanálise
+
+O parser mantém 16.384 visitas principais e até 16.384 agrupamentos em um contador cumulativo separado, inclusive entre interpolações e entre parâmetros/corpo de Function. A admissão de fontes mistas muda, podendo somar 32.768 entradas; não se declara o mesmo total de trabalho ou latência. Grupos não criam AST ou frames, mas continuam limitados. For clássico reutiliza o Pattern ou contexto Pratt inicial em vez de analisar o prefixo duas vezes. Profundidade, tokens, fonte, armazenamento e quotas da VM continuam ativos. [Contrato e verificação](../releases/2026-11-09-parser-work-ledgers.md).
+
+### Trabalho agregado de parsing
+
+O parser limita separadamente 16.384 entradas de gramática/validação e 16.384 agrupamentos sem AST/frame, herdando ambos os saldos por templates e Function. Pode admitir até 32.768 entradas combinadas; não mantém o total anterior nem contabiliza toda a AST. Inicializadores de for reaproveitam o primeiro Pattern ou Context/AST Pratt, evitando parsing descartado sem reembolso. Guards físicos/nativos/lógicos, lexer, Sequence e VM não mudam. Grupos ainda têm custo de CPU limitado; não há promessa de RSS, latência universal ou compatibilidade completa com sites. [Contrato](../releases/2026-11-09-parser-work-ledgers.md) e fixtures javascript-parser-work.html e javascript-parser-work-function.html.
+
+### Cadeias planas de else-if
+
+Arestas imediatas de else-if usam armazenamento imutável e percursos iterativos, com até 4.096 cláusulas, sem fundir blocos ou escopos. Condições, efeitos e ticks permanecem na ordem original, inclusive em async/generator. O teto de armazenamento plano de 1.572.864 bytes em x64 passa a ser compartilhado com Sequence; combinações grandes podem esgotá-lo antes. Corpos e condições conservam os limites residuais de profundidade. Não há aumento de pilha ou declaração de compatibilidade completa com sites. [Contrato e testes](../releases/2026-11-09-flat-if-chains.md); fixture javascript-if-chains.html.
+
+### Caudas condicionais planas
+
+Espinhas contíguas pelo ramo falso de ternários usam cláusulas imutáveis, sem reconstruir ou clonar sufixos. A altura residual diminui nessa forma; condições, ramos verdadeiros e demais operadores mantêm sua estrutura. A construção compartilha o teto de armazenamento de Sequence/IfChain e não adiciona visitas ao parser. O teto local de 64 cláusulas não substitui o guard lógico de Pratt, que pode recusar antes. Ordem, ticks, semântica de valor e suspensão são preservados, sem ampliar a pilha. [Contrato e testes](../releases/2026-11-09-flat-conditional-chains.md); fixture javascript-conditional-chains.html. Não é uma arena geral de expressões nem uma declaração de compatibilidade completa com sites.
+
+## Construtores Error como ancestrais somente leitura
+
+Objetos ordinários e funções da VM podem usar Error, TypeError, RangeError, ReferenceError e SyntaxError como ancestrais internos. A caminhada preserva os dados e métodos existentes, os receivers dos accessors herdados e a separação entre o slot interno do construtor e sua propriedade pública prototype. Metadados fixos não criam um owner mutável nem materializam Error.prototype nas consultas de presença.
+
+Object.getPrototypeOf e uma exceção restrita de Reflect.getPrototypeOf expõem essas cinco cadeias. Mutação e reflexão própria direta nesses Native, hosts genéricos, outros construtores e objetos exóticos continuam limitados. Tetos de trabalho, profundidade, heap e sandbox permanecem. [Contrato e validação](../releases/2026-11-09-error-constructor-ancestors.md); fixture javascript-error-ancestors.html. Testes focais, integração DOM, Clippy workspace e treze fixtures Linux em pilha de 1 MiB aprovados; a validação de sites reais permanece separada.
+
+## Bloco de avaliação síncrona iterativa — em validação
+
+O bloco migra o percurso comum de expressões para continuações emprestadas e limitadas, incluindo operadores, referências, captura de calls/new, literais e argumentos. Mantém bridges identificados para classes, padrões, código dinâmico, invocação e operações reentrantes. Não torna toda a VM sem pilha nem amplia a gramática ou a autoridade Host.
+
+Código, fixtures e regressões foram integrados e passaram por revisão textual sob o [contrato de execução e armazenamento](../releases/2026-11-10-bounded-synchronous-evaluation.md). A validação concentrada começou somente após completar a implementação e a revisão textual. Testes focais, 14 fixtures Linux em 1 MiB e comparação sintética independente passaram; o agregado final e a QA Windows permanecem pendentes. A V12 anterior permanece preservada.

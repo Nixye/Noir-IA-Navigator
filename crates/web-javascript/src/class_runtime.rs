@@ -1,6 +1,6 @@
 //! Lexical class environments and branded private storage.
 use crate::{
-    Expr, Heap, Host, JsError, Runtime, Value,
+    Heap, Host, JsError, Runtime, Value,
     language::{ClassInfo, Construction, MethodInfo, PrivateSlot},
     parser::{ClassDefinition, ClassMember, Parameter},
 };
@@ -298,22 +298,24 @@ impl Runtime {
         value: Value,
     ) -> Result<(), JsError> {
         let id = self.heap_owner(&target)?;
-        match self.heap.get_mut(id) {
-            Some(Heap::Object(object)) => {
-                if object.properties.len() >= 128 && !object.properties.contains_key(name) {
-                    return Err(JsError::resource("Class field limit exceeded"));
-                }
+        if !matches!(self.heap.get(id), Some(Heap::Object(_) | Heap::Function(_))) {
+            return Err(JsError::runtime("Unsupported class field receiver"));
+        }
+        if self.reserve_named_property(id, name)? {
+            self.property_order
+                .entry(id)
+                .or_default()
+                .push(name.to_owned());
+        }
+        match &mut self.heap[id] {
+            Heap::Object(object) => {
                 object.properties.insert(name.to_owned(), value);
             }
-            Some(Heap::Function(function)) => {
-                if function.properties.len() >= 128 && !function.properties.contains_key(name) {
-                    return Err(JsError::resource("Static class field limit exceeded"));
-                }
+            Heap::Function(function) => {
                 function.properties.insert(name.to_owned(), value);
             }
-            _ => return Err(JsError::runtime("Unsupported class field receiver")),
+            _ => unreachable!(),
         };
-        self.note_property_insertion(id, name);
         self.property_metadata.entry(id).or_default().insert(
             name.to_owned(),
             crate::descriptors::PropertyMetadata {
@@ -506,6 +508,7 @@ impl Runtime {
         new_target: usize,
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
+        crate::call_storage::check_arguments(args.len())?;
         self.tick()?;
         if self.call_depth >= self.limits.call_depth {
             return Err(JsError::resource("Class construction depth exceeded"));
@@ -577,6 +580,7 @@ impl Runtime {
         args: Vec<Value>,
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
+        crate::call_storage::check_arguments(args.len())?;
         let construction = self
             .language
             .construction
@@ -627,6 +631,7 @@ impl Runtime {
         scope: usize,
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
+        crate::call_storage::check_arguments(args.len())?;
         let class = self.private_class(scope)?;
         let frame = self
             .language
@@ -656,22 +661,39 @@ impl Runtime {
             _ => Err(self.property_type_error("Invalid super home")),
         }
     }
-    pub(super) fn super_get(
+    /// Base and receiver must be captured before evaluating the key operand.
+    /// The value helper retains the existing explicit Symbol subset boundary.
+    pub(super) fn super_get_values(
         &mut self,
-        key: &Expr,
-        scope: usize,
+        base: Value,
+        receiver: Value,
+        key: Value,
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
-        let base = self.super_base(scope, host)?;
-        let this = self.read(scope, "this", host)?;
-        let key = self.eval(key, scope, host)?;
         let key = self.coerce_property_key(key, host)?;
         if matches!(key, Value::Symbol(..)) {
             Err(self.property_type_error("Symbol super access is not implemented"))
         } else {
             let key = self.text(&key, 0)?;
-            self.get_with_receiver(base, &key, this, host)
+            self.get_with_receiver(base, &key, receiver, host)
         }
+    }
+    pub(super) fn super_place_values(
+        &mut self,
+        base: Value,
+        receiver: Value,
+        key: Value,
+        host: &mut impl Host,
+    ) -> Result<crate::Place, JsError> {
+        let key = self.coerce_property_key(key, host)?;
+        if matches!(key, Value::Symbol(..)) {
+            return Err(self.property_type_error("Symbol super assignment is not implemented"));
+        }
+        Ok(crate::Place::SuperMember(
+            base,
+            receiver,
+            self.sync_property_metadata(&key)?,
+        ))
     }
     pub(super) fn super_set(
         &mut self,
@@ -683,36 +705,60 @@ impl Runtime {
     ) -> Result<(), JsError> {
         for _ in 0..64 {
             self.tick()?;
-            let id = match base {
-                Value::Object(id) | Value::Function(id) | Value::Array(id) => id,
-                Value::Null => return self.set(receiver, key, value, host),
-                _ => return Err(self.property_type_error("Invalid superclass property receiver")),
-            };
-            if let Some(meta) = self
-                .property_metadata
-                .get(&id)
-                .and_then(|map| map.get(key))
-                .cloned()
+            if base == Value::Null {
+                return self.set(receiver, key, value, host);
+            }
+            if !matches!(
+                base,
+                Value::Object(_)
+                    | Value::Function(_)
+                    | Value::Array(_)
+                    | Value::Native("Number" | "Symbol")
+            ) && crate::reflection::intrinsic_ancestors::readonly_ancestor_names(&base).is_none()
             {
-                if let Some((_, setter)) = meta.accessor {
+                return Err(self.property_type_error("Invalid superclass property receiver"));
+            }
+            let descriptor =
+                if crate::reflection::intrinsic_ancestors::readonly_ancestor_names(&base).is_some()
+                {
+                    self.readonly_ancestor_descriptor(&base, key, false)?
+                } else {
+                    self.own_descriptor(&base, key, host)?
+                };
+            if let Some(descriptor) = descriptor {
+                if let Some((_, setter)) = descriptor.metadata.accessor {
                     if setter == Value::Undefined {
                         return Err(self.property_type_error("Superclass accessor has no setter"));
                     }
                     self.call(setter, vec![value], receiver, host)?;
                     return Ok(());
                 }
-                if !meta.writable {
+                if !descriptor.metadata.writable {
                     return Err(self.property_type_error("Superclass property is not writable"));
                 }
                 return self.set(receiver, key, value, host);
             }
-            if self.has_own_property(&base, key)? {
-                return self.set(receiver, key, value, host);
-            }
-            base = match self.heap.get(id) {
-                Some(Heap::Object(object)) => object.prototype.clone().unwrap_or(Value::Null),
-                Some(Heap::Function(_)) => self.class_static_parent(id).unwrap_or(Value::Null),
-                _ => Value::Null,
+            base = match base {
+                Value::Function(id) => self.function_internal_prototype(id)?,
+                Value::Object(id) => match &self.heap[id] {
+                    Heap::Object(object) => object.prototype.clone().unwrap_or(Value::Null),
+                    _ => unreachable!(),
+                },
+                Value::Array(id) => {
+                    if Some(id) == self.array_prototype {
+                        self.object_prototype_value()?
+                    } else {
+                        self.array_prototype_value()?
+                    }
+                }
+                ref value
+                    if crate::reflection::intrinsic_ancestors::readonly_ancestor_names(value)
+                        .is_some() =>
+                {
+                    self.readonly_ancestor_parent(value)?.unwrap()
+                }
+                Value::Native("Number" | "Symbol") => Value::Native("Function.prototype"),
+                _ => unreachable!(),
             };
         }
         Err(JsError::resource("Superclass property depth exceeded"))

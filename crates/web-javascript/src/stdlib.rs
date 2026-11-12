@@ -159,6 +159,10 @@ fn time_clip(value: f64) -> f64 {
 }
 
 impl Runtime {
+    pub(super) fn stdlib_property_owner(&self, id: usize) -> bool {
+        self.stdlib.objects.contains_key(&id)
+    }
+
     /// Snapshot actual BufferSource slots, never page-defined getters. All views
     /// use their byte range (DataView length is already measured in bytes).
     pub(super) fn wasm_buffer_source(
@@ -376,6 +380,7 @@ impl Runtime {
             _ => &[],
         };
         for (property, getter) in getters {
+            self.reserve_named_property(id, property)?;
             self.charge_string(property.len())?;
             if let Heap::Object(object) = &mut self.heap[id] {
                 object
@@ -394,6 +399,7 @@ impl Runtime {
             );
         }
         if let Some(kind) = element_kind(name) {
+            self.reserve_named_property(id, "BYTES_PER_ELEMENT")?;
             if let Heap::Object(object) = &mut self.heap[id] {
                 object.properties.insert(
                     "BYTES_PER_ELEMENT".into(),
@@ -1167,7 +1173,7 @@ impl Runtime {
                 }
                 let source = args.first().cloned().unwrap_or(Value::Undefined);
                 let values = if name == "TypedArray.of" {
-                    Some(args.to_vec())
+                    Some(self.copy_argument_values(args)?)
                 } else {
                     self.typed_iterable_values(&source, host)?
                 };

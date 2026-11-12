@@ -33,6 +33,9 @@ impl Runtime {
         } else {
             None
         };
+        if prototype.is_some() {
+            self.reserve_named_property(*id, "prototype")?;
+        }
         if let Heap::Function(function) = &mut self.heap[*id] {
             function.kind = kind;
             function.method = method;
@@ -617,7 +620,10 @@ mod tests {
     }
     #[test]
     fn delegated_step_budget_is_fatal_and_does_not_run_finally() {
-        let mut vm = Runtime::default();
+        let mut vm = Runtime::new(crate::Limits {
+            instructions: 10_000_000,
+            ..crate::Limits::default()
+        });
         vm.execute("let cleaned=0;let delegate={next:function(){return {done:false};}};delegate[Symbol.iterator]=function(){return this;};function* run(){try{yield* delegate;}finally{cleaned++;}}let gen=run();", &mut Empty).unwrap();
         for _ in 0..4096 {
             vm.execute("gen.next();", &mut Empty).unwrap();

@@ -64,7 +64,7 @@ impl Runtime {
         }
         Ok(text)
     }
-    fn charge_bigint_decimal(&mut self, number: &crate::BigInt) -> Result<(), JsError> {
+    pub(super) fn charge_bigint_decimal(&mut self, number: &crate::BigInt) -> Result<(), JsError> {
         let digits = number.bits().div_ceil(3).saturating_add(2);
         let work = number.bits().div_ceil(32).max(1).saturating_mul(digits);
         self.remaining = self
@@ -245,6 +245,15 @@ impl Runtime {
         hint: Hint,
         host: &mut impl Host,
     ) -> Result<Value, JsError> {
+        if let Value::Host(object) = &value
+            && let Some(text) = host.stringifier(*object)?
+        {
+            self.remaining = self
+                .remaining
+                .checked_sub(text.len() as u64)
+                .ok_or_else(|| JsError::resource("Host stringifier work budget exceeded"))?;
+            return self.string(text);
+        }
         // Native/host exotics do not yet expose ordinary descriptor semantics.
         // In particular, Date must not silently use the ordinary default hint.
         if matches!(value, Value::Native(_) | Value::Host(_)) || self.stdlib_is_exotic(&value) {
@@ -814,5 +823,107 @@ mod tests {
             assert_eq!(vm.eval_depth, 0, "budget {budget}");
             assert!(vm.remaining < budget);
         }
+    }
+}
+
+#[cfg(test)]
+mod host_stringifier_tests {
+    use crate::{ErrorKind, Host, JsError, Runtime, Value};
+    struct DataHost {
+        text: String,
+        calls: usize,
+    }
+    impl Host for DataHost {
+        fn stringifier(&mut self, object: u64) -> Result<Option<String>, JsError> {
+            if object != 77 {
+                return Ok(None);
+            }
+            self.calls += 1;
+            Ok(Some(self.text.clone()))
+        }
+        fn global(&mut self, name: &str) -> Option<Value> {
+            match name {
+                "h" => Some(Value::Host(77)),
+                "other" => Some(Value::Host(78)),
+                _ => None,
+            }
+        }
+        fn get(&mut self, _: u64, _: &str) -> Result<Value, JsError> {
+            panic!("stringifier must not read arbitrary host properties")
+        }
+        fn set(&mut self, _: u64, _: &str, _: Value) -> Result<(), JsError> {
+            panic!("stringifier must not write host properties")
+        }
+        fn call(&mut self, _: u64, _: &str, _: &[Value]) -> Result<Value, JsError> {
+            panic!("stringifier must not invoke host methods")
+        }
+    }
+    fn host(text: &str) -> DataHost {
+        DataHost {
+            text: text.into(),
+            calls: 0,
+        }
+    }
+    #[test]
+    fn opt_in_uses_data_once_per_hint_without_property_dispatch() {
+        let mut vm = Runtime::default();
+        let mut h = host("17");
+        assert_eq!(
+            vm.execute("String(h)==='17' && Number(h)===17 && h+2==='172';", &mut h)
+                .unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(h.calls, 3);
+    }
+    #[test]
+    fn non_opted_host_and_native_exotic_remain_rejected() {
+        let mut vm = Runtime::default();
+        let mut h = host("17");
+        assert_eq!(
+            vm.execute(
+                "let failed=false;try{String(other);}catch(e){failed=true;}failed;",
+                &mut h
+            )
+            .unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(h.calls, 0);
+        // Native functions retain the pre-existing exotic-coercion refusal.
+        assert_eq!(vm.execute("let nativeFailed=false;try{String(parseInt);}catch(e){nativeFailed=true;}nativeFailed;",&mut h).unwrap(),Value::Bool(true));
+    }
+    #[test]
+    fn stringifier_return_respects_vm_string_size_and_allocation_budget() {
+        let mut vm = Runtime::default();
+        let mut h = host(&"x".repeat(65_537));
+        assert_eq!(
+            vm.coerce_to_string(Value::Host(77), &mut h)
+                .unwrap_err()
+                .kind,
+            ErrorKind::Resource
+        );
+        let mut vm = Runtime::default();
+        let mut h = host("bytes");
+        vm.string_bytes = vm.limits.string_bytes;
+        assert_eq!(
+            vm.coerce_to_string(Value::Host(77), &mut h)
+                .unwrap_err()
+                .kind,
+            ErrorKind::Resource
+        );
+        assert_eq!(vm.conversion_depth, 0);
+    }
+    #[test]
+    fn stringifier_work_exhaustion_is_resource_and_releases_conversion_depth() {
+        let mut vm = Runtime::default();
+        let mut h = host("ten bytes!");
+        vm.remaining = 3;
+        assert_eq!(
+            vm.coerce_to_string(Value::Host(77), &mut h)
+                .unwrap_err()
+                .kind,
+            ErrorKind::Resource
+        );
+        assert_eq!(h.calls, 1);
+        assert_eq!(vm.conversion_depth, 0);
     }
 }

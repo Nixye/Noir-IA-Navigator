@@ -1,0 +1,14 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Bounded array storage</title></head>
+<body><h1>Bounded array storage</h1><p id="result">Not executed</p>
+<script>
+var array = Array(5000);
+var absent = !(4999 in array);
+array[4999] = undefined;
+var present = Object.hasOwn(array, '4999');
+delete array[4999];
+var joined = array.join(',');
+document.getElementById('result').textContent =
+  array.length === 5000 && absent && present && !(4999 in array) && joined.length === 4999
+  ? 'PASS: length, holes, undefined and join' : 'FAIL';
+</script></body></html>

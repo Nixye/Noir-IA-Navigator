@@ -2,6 +2,19 @@
 use super::*;
 use std::collections::BTreeSet;
 
+#[cfg(test)]
+#[path = "parser_module_entry_tests.rs"]
+mod entry_tests;
+
+fn bounded_module_entries(current: usize, additional: usize) -> Result<(), JsError> {
+    if current.saturating_add(additional) > crate::modules::MAX_ENTRIES {
+        return Err(JsError::resource(
+            "Module requests, imports or exports exceed 256",
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 pub struct ModuleImport {
     pub source: String,
@@ -32,13 +45,16 @@ pub fn parse_module(source: &str) -> Result<Module, JsError> {
         tokens: lex(source)?,
         index: 0,
         depth: 0,
+        expression_frames: 0,
         function_depth: 0,
         function_kind: FunctionKind::Ordinary,
         module_context: true,
         loop_depth: 0,
         switch_depth: 0,
         labels: Vec::new(),
-        nodes: 0,
+        visits: 0,
+        group_visits: 0,
+        flat_storage_bytes: 0,
     };
     let mut module = Module::default();
     let mut requests = BTreeSet::new();
@@ -48,7 +64,7 @@ pub fn parse_module(source: &str) -> Result<Module, JsError> {
             && !parser
                 .tokens
                 .get(parser.index + 1)
-                .is_some_and(|token| matches!(&token.kind, Kind::Symbol(symbol) if symbol == "(" || symbol == "."))
+                .is_some_and(|token| matches!(&token.kind, Kind::Symbol(symbol) if *symbol == "(" || *symbol == "."))
         {
             parser.index += 1;
             parser.module_import(&mut module, &mut requests)?;
@@ -84,8 +100,9 @@ impl Parser {
     }
 
     fn module_export_name(&mut self) -> Result<String, JsError> {
-        match self.token().kind.clone() {
+        match &self.token().kind {
             Kind::Name(name) | Kind::String(name) => {
+                let name = name.clone();
                 self.index += 1;
                 Ok(name)
             }
@@ -98,9 +115,13 @@ impl Parser {
         module: &mut Module,
         requests: &mut BTreeSet<String>,
     ) -> Result<String, JsError> {
-        let Kind::String(source) = self.token().kind.clone() else {
+        let Kind::String(source) = &self.token().kind else {
             return Err(self.error("Expected string module specifier"));
         };
+        if !requests.contains(source) {
+            bounded_module_entries(requests.len(), 1)?;
+        }
+        let source = source.clone();
         self.index += 1;
         if self.is("with") || self.is("assert") {
             return Err(self.error("Import attributes are not supported"));
@@ -123,6 +144,7 @@ impl Parser {
         }
         let mut bindings = Vec::new();
         if !self.is("*") && !self.is("{") {
+            bounded_module_entries(module.imports.len(), 1)?;
             bindings.push(("default".to_owned(), self.module_binding()?));
             if !self.eat(",") {
                 self.require("from")?;
@@ -139,11 +161,13 @@ impl Parser {
         }
         if self.eat("*") {
             self.require("as")?;
+            bounded_module_entries(module.imports.len(), bindings.len() + 1)?;
             bindings.push(("*".to_owned(), self.module_binding()?));
         } else {
             self.require("{")?;
             while !self.eat("}") {
                 self.count()?;
+                bounded_module_entries(module.imports.len(), bindings.len() + 1)?;
                 let start = self.index;
                 let imported = self.module_export_name()?;
                 if imported == "*" {
@@ -174,7 +198,14 @@ impl Parser {
         Ok(())
     }
 
-    fn module_reexport(module: &mut Module, source: &str, imported: String, exported: String) {
+    fn module_reexport(
+        module: &mut Module,
+        source: &str,
+        imported: String,
+        exported: String,
+    ) -> Result<(), JsError> {
+        bounded_module_entries(module.imports.len(), 1)?;
+        bounded_module_entries(module.exports.len(), 1)?;
         let local = format!("[[reexport{}]]", module.imports.len());
         module.imports.push(ModuleImport {
             source: source.to_owned(),
@@ -182,6 +213,7 @@ impl Parser {
             local: local.clone(),
         });
         module.exports.push(ModuleExport { exported, local });
+        Ok(())
     }
 
     fn module_export(
@@ -191,14 +223,17 @@ impl Parser {
     ) -> Result<(), JsError> {
         if self.eat("*") {
             let exported = if self.eat("as") {
+                bounded_module_entries(module.imports.len(), 1)?;
+                bounded_module_entries(module.exports.len(), 1)?;
                 Some(self.module_export_name()?)
             } else {
+                bounded_module_entries(module.star_exports.len(), 1)?;
                 None
             };
             self.require("from")?;
             let source = self.module_source(module, requests)?;
             if let Some(exported) = exported {
-                Self::module_reexport(module, &source, "*".to_owned(), exported);
+                Self::module_reexport(module, &source, "*".to_owned(), exported)?;
             } else {
                 module.star_exports.push(source);
             }
@@ -208,6 +243,7 @@ impl Parser {
             let mut entries = Vec::new();
             while !self.eat("}") {
                 self.count()?;
+                bounded_module_entries(module.exports.len(), entries.len() + 1)?;
                 let start = self.index;
                 let local = self.module_export_name()?;
                 let end = self.index;
@@ -223,12 +259,15 @@ impl Parser {
                 self.require(",")?;
             }
             if self.eat("from") {
+                // Local export lists do not consume imports. Check reexports once
+                // `from` disambiguates the list, before copying its source.
+                bounded_module_entries(module.imports.len(), entries.len())?;
                 let source = self.module_source(module, requests)?;
                 for (imported, exported, _, _) in entries {
                     if imported == "*" {
                         return Err(self.error("String-named star reexports are not supported"));
                     }
-                    Self::module_reexport(module, &source, imported, exported);
+                    Self::module_reexport(module, &source, imported, exported)?;
                 }
             } else {
                 // Without `from`, the left-hand side must be a local IdentifierReference.
@@ -245,6 +284,7 @@ impl Parser {
             return Ok(());
         }
         if self.eat("default") {
+            bounded_module_entries(module.exports.len(), 1)?;
             let local;
             let statement;
             if let Some(kind) = self.function_prefix()? {
@@ -282,6 +322,7 @@ impl Parser {
                 );
                 self.semicolon()?;
             }
+            depth::validate_statement_depth(&statement)?;
             module.body.push(statement);
             module.exports.push(ModuleExport {
                 exported: "default".to_owned(),
@@ -302,17 +343,63 @@ impl Parser {
             return Err(self.error("Expected an export declaration"));
         }
         let statement = self.statement()?;
-        let mut names = Vec::new();
-        declaration_names(&statement, &mut names);
-        for local in names {
-            module.exports.push(ModuleExport {
-                exported: local.clone(),
-                local,
-            });
-        }
+        module_export_declaration(module, &statement)?;
         module.body.push(statement);
         Ok(())
     }
+}
+
+fn module_export_binding(module: &mut Module, name: &str) -> Result<(), JsError> {
+    bounded_module_entries(module.exports.len(), 1)?;
+    module.exports.push(ModuleExport {
+        exported: name.to_owned(),
+        local: name.to_owned(),
+    });
+    Ok(())
+}
+
+fn module_export_pattern(module: &mut Module, pattern: &Pattern) -> Result<(), JsError> {
+    match pattern {
+        Pattern::Name(name) => module_export_binding(module, name)?,
+        Pattern::Array(values, rest) => {
+            for value in values.iter().flatten() {
+                module_export_pattern(module, value)?;
+            }
+            if let Some(rest) = rest {
+                module_export_pattern(module, rest)?;
+            }
+        }
+        Pattern::Object(values, rest) => {
+            for (_, value) in values {
+                module_export_pattern(module, value)?;
+            }
+            if let Some(rest) = rest {
+                module_export_pattern(module, rest)?;
+            }
+        }
+        Pattern::Default(pattern, _) => module_export_pattern(module, pattern)?,
+    }
+    Ok(())
+}
+
+fn module_export_declaration(module: &mut Module, statement: &Stmt) -> Result<(), JsError> {
+    match statement {
+        Stmt::Variables(_, values) => {
+            for (name, _) in values {
+                module_export_binding(module, name)?;
+            }
+        }
+        Stmt::PatternVariables(_, values) => {
+            for (pattern, _) in values {
+                module_export_pattern(module, pattern)?;
+            }
+        }
+        Stmt::FunctionDefinition(name, _) | Stmt::ClassDefinition(name, _) => {
+            module_export_binding(module, name)?;
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 fn declaration_names(statement: &Stmt, names: &mut Vec<String>) {
@@ -345,6 +432,14 @@ fn module_var_names(statement: &Stmt, names: &mut Vec<String>) {
             module_var_names(yes, names);
             if let Some(no) = no {
                 module_var_names(no, names);
+            }
+        }
+        Stmt::IfChain(chain) => {
+            for (_, body) in chain.clauses() {
+                module_var_names(body, names);
+            }
+            if let Some(fallback) = chain.fallback() {
+                module_var_names(fallback, names);
             }
         }
         Stmt::While(_, body) | Stmt::DoWhile(body, _) | Stmt::Label(_, body) => {
@@ -612,5 +707,44 @@ mod async_generator_export_tests {
         ] {
             assert!(parse_module(source).is_err(), "accepted {source}");
         }
+    }
+}
+
+#[cfg(test)]
+mod if_chain_tests {
+    use super::*;
+
+    #[test]
+    fn flat_if_module_vars_follow_source_order_and_exclude_nested_functions() {
+        let module = parse_module("if (function(){var hiddenCondition;}) {var first;} else if (false) {var [second] = []; function f(){var hiddenBody;}} else {var last;} export {first, second, last};").unwrap();
+        let Stmt::IfChain(chain) = &module.body[0] else {
+            panic!("expected flat if chain")
+        };
+        let mut tail = chain.fallback().cloned();
+        for (condition, body) in chain.clauses().iter().rev() {
+            tail = Some(Stmt::If(
+                condition.clone(),
+                Box::new(body.clone()),
+                tail.map(Box::new),
+            ));
+        }
+        let mut flat = Vec::new();
+        module_var_names(&module.body[0], &mut flat);
+        let mut nested = Vec::new();
+        module_var_names(&tail.unwrap(), &mut nested);
+        assert_eq!(flat, nested);
+        assert_eq!(flat, ["first", "second", "last"]);
+    }
+
+    #[test]
+    fn flat_if_module_binding_checks_reach_later_clauses_and_fallback() {
+        for source in [
+            "import x from 'a'; if (true) {} else if (false) {var x;}",
+            "let x; if (true) {} else if (false) {} else {var x;}",
+            "if (true) {} else if (false) {function f(){var hidden;}} export {hidden};",
+        ] {
+            assert!(parse_module(source).is_err(), "accepted {source}");
+        }
+        assert!(parse_module("let hidden; if (true) {} else if (false) {function f(){var hidden;} let local;} else {let local;}").is_ok());
     }
 }

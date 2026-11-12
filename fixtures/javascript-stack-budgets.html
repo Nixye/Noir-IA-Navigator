@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Pilha JavaScript limitada</title></head>
+<body><h1>Execução JavaScript limitada</h1><p id="result">Aguardando execução.</p><script>
+let sum = 1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1;
+function recurse(n) { if (n === 1) return 7; return recurse(n - 1); }
+let recursive = recurse(16);
+let nested = 0;
+{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{nested = 9;}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
+function Receiver() { return 3; }
+const parent = {};
+Object.defineProperty(parent, 'marker', {get: function () { return this === Receiver ? 11 : 0; }});
+Object.setPrototypeOf(Receiver, parent);
+document.getElementById('result').textContent = sum === 60 && recursive === 7 && nested === 9 && Receiver.marker === 11
+  ? 'Expressões, blocos e chamadas executados com limites ativos.' : 'Falha na execução limitada.';
+</script></body></html>

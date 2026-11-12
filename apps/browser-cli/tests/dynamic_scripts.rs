@@ -84,6 +84,7 @@ fn real_session_brokers_chained_sources_and_keeps_callbacks_and_vm_state() {
             Viewport {
                 width: 640.,
                 height: 480.,
+                view_context: None,
             },
             None,
         )

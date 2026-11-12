@@ -1,5 +1,5 @@
 //! Bounded property identity, insertion order and array exotic length semantics.
-use crate::{Heap, Host, JsError, Runtime, Value};
+use crate::{Heap, Host, JsError, MAX_ARRAY_LENGTH, Runtime, Value};
 use std::collections::BTreeSet;
 
 #[cfg(test)]
@@ -66,29 +66,28 @@ impl Runtime {
                 .collect(),
         );
     }
-    pub(super) fn note_property_insertion(&mut self, id: usize, key: &str) {
-        let order = self.property_order.entry(id).or_default();
-        if !order.iter().any(|existing| existing == key) {
-            order.push(key.to_owned());
-        }
-    }
     pub(super) fn sort_property_keys(&self, id: usize, keys: &mut [String]) {
-        let order = self.property_order.get(&id);
-        keys.sort_by(
-            |left, right| match (ordered_index(left), ordered_index(right)) {
-                (Some(a), Some(b)) => a.cmp(&b),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => {
-                    let rank = |key: &str| {
-                        order
-                            .and_then(|order| order.iter().position(|candidate| candidate == key))
-                            .unwrap_or(usize::MAX)
-                    };
-                    rank(left).cmp(&rank(right))
-                }
-            },
-        );
+        let ranks = self.property_order.get(&id).map(|order| {
+            order
+                .iter()
+                .enumerate()
+                .map(|(rank, key)| (key.as_str(), rank))
+                .collect::<std::collections::BTreeMap<_, _>>()
+        });
+        keys.sort_by_cached_key(|key| {
+            if let Some(index) = ordered_index(key) {
+                (false, index, 0)
+            } else {
+                (
+                    true,
+                    0,
+                    ranks
+                        .as_ref()
+                        .and_then(|ranks| ranks.get(key.as_str()).copied())
+                        .unwrap_or(usize::MAX),
+                )
+            }
+        });
     }
     pub(super) fn set_array_length(
         &mut self,
@@ -125,8 +124,10 @@ impl Runtime {
                 Some(self.native("RangeError", &[Value::string("Invalid array length")])?);
             return Err(error);
         }
-        if number > 4096. {
-            return Err(JsError::resource("Array length exceeds 4096"));
+        if number > MAX_ARRAY_LENGTH as f64 {
+            return Err(JsError::resource(format!(
+                "Array length exceeds {MAX_ARRAY_LENGTH}"
+            )));
         }
         let next = number as usize;
         let old = match self.heap.get(id) {
@@ -150,7 +151,10 @@ impl Runtime {
                 unreachable!()
             };
             values.resize(next, Value::Undefined);
-            self.array_holes.entry(id).or_default().extend(old..next);
+            self.array_holes
+                .entry(id)
+                .or_default()
+                .insert_range(old, next)?;
         } else {
             for index in (next..old).rev() {
                 self.tick()?;
@@ -160,7 +164,7 @@ impl Runtime {
                     };
                     values.truncate(index + 1);
                     if let Some(holes) = self.array_holes.get_mut(&id) {
-                        holes.retain(|hole| *hole <= index);
+                        holes.truncate(index + 1);
                     }
                     return Err(
                         self.property_type_error("Cannot truncate a non-configurable array index")
@@ -172,7 +176,7 @@ impl Runtime {
             };
             values.truncate(next);
             if let Some(holes) = self.array_holes.get_mut(&id) {
-                holes.retain(|index| *index < next);
+                holes.truncate(next);
             }
         }
         Ok(())
@@ -194,8 +198,9 @@ impl Runtime {
         };
         for _ in 0..64 {
             self.tick()?;
-            if current == Value::Native("Function.prototype") {
-                current = self.object_prototype_value()?;
+            if let Some(parent) = self.readonly_ancestor_parent(&current)? {
+                current = parent;
+                continue;
             }
             let id = self.symbol_owner(&current)?;
             if let Some(metadata) = self.symbol_metadata.get(&id).and_then(|map| map.get(&key))
@@ -216,6 +221,7 @@ impl Runtime {
             }
             current = match self.heap.get(id) {
                 Some(Heap::Object(object)) => object.prototype.clone().unwrap_or(Value::Null),
+                Some(Heap::Function(_)) => self.function_internal_prototype(id)?,
                 Some(Heap::Array(_)) => {
                     if Some(id) == self.array_prototype {
                         self.object_prototype_value()?
@@ -240,8 +246,9 @@ impl Runtime {
         let mut current = object.clone();
         for _ in 0..64 {
             self.tick()?;
-            if current == Value::Native("Function.prototype") {
-                current = self.object_prototype_value()?;
+            if let Some(parent) = self.readonly_ancestor_parent(&current)? {
+                current = parent;
+                continue;
             }
             let id = self.symbol_owner(&current)?;
             if self
@@ -253,6 +260,7 @@ impl Runtime {
             }
             current = match self.heap.get(id) {
                 Some(Heap::Object(object)) => object.prototype.clone().unwrap_or(Value::Null),
+                Some(Heap::Function(_)) => self.function_internal_prototype(id)?,
                 Some(Heap::Array(_)) => {
                     if Some(id) == self.array_prototype {
                         self.object_prototype_value()?
@@ -277,10 +285,12 @@ impl Runtime {
     ) -> Result<(), JsError> {
         let owner = self.symbol_owner(&object)?;
         let mut current = object.clone();
+        let mut finished = false;
         for _ in 0..64 {
             self.tick()?;
-            if current == Value::Native("Function.prototype") {
-                current = self.object_prototype_value()?;
+            if let Some(parent) = self.readonly_ancestor_parent(&current)? {
+                current = parent;
+                continue;
             }
             let id = self.symbol_owner(&current)?;
             if let Some(metadata) = self
@@ -307,6 +317,7 @@ impl Runtime {
                         Ok(())
                     };
                 }
+                finished = true;
                 break;
             }
             if self
@@ -314,10 +325,12 @@ impl Runtime {
                 .get(&id)
                 .is_some_and(|map| map.contains_key(&key))
             {
+                finished = true;
                 break;
             }
             current = match self.heap.get(id) {
                 Some(Heap::Object(object)) => object.prototype.clone().unwrap_or(Value::Null),
+                Some(Heap::Function(_)) => self.function_internal_prototype(id)?,
                 Some(Heap::Array(_)) => {
                     if Some(id) == self.array_prototype {
                         self.object_prototype_value()?
@@ -328,8 +341,14 @@ impl Runtime {
                 _ => Value::Null,
             };
             if current == Value::Null {
+                finished = true;
                 break;
             }
+        }
+        if !finished {
+            return Err(JsError::resource(
+                "Symbol assignment prototype depth exceeded",
+            ));
         }
         if self.reflection.non_extensible.contains(&owner)
             && !self
